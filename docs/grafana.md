@@ -113,6 +113,13 @@ groups:
         annotations:
           summary: "RdpGuard processing errors ({{ $labels.stage }}) on {{ $labels.instance }}"
 
+      - alert: RdpGuardLogonAuditingOff
+        expr: rdpguard_logon_audit_enabled == 0
+        for: 2h
+        annotations:
+          summary: "Logon auditing ({{ $labels.type }}) is off on {{ $labels.instance }}: RdpGuard cannot see attacks"
+          description: "RdpGuard re-enables it hourly; if it stays off, a Group Policy disables Audit Logon."
+
       - alert: RdpGuardDryRun
         expr: rdpguard_dry_run == 1
         for: 7d

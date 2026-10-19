@@ -14,6 +14,7 @@ namespace RdpGuard.Hosting;
 public sealed class GuardService : BackgroundService
 {
     private static readonly TimeSpan QuickTick = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan AuditCheckInterval = TimeSpan.FromHours(1);
     private const int MaintenanceEveryQuickTicks = 12; // 12 * 5 c = раз в минуту
 
     private readonly GuardOptions _options;
@@ -59,6 +60,8 @@ public sealed class GuardService : BackgroundService
             return;
         }
 
+        CheckLogonAuditing();
+
         if (!_options.DryRun && ComFirewall.IsEnabledForCurrentProfiles() == false)
             _log.LogWarning(LogEvents.FirewallError, "Windows Firewall is disabled for an active profile: bans will have no effect");
 
@@ -73,6 +76,7 @@ public sealed class GuardService : BackgroundService
 
         using var tickerCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
         var ticker = RunTickerAsync(channel.Writer, tickerCts.Token);
+        var auditTicker = RunAuditCheckAsync(tickerCts.Token);
         try
         {
             _source.Start(channel.Writer, engine.GetBookmark);
@@ -89,13 +93,60 @@ public sealed class GuardService : BackgroundService
             channel.Writer.TryComplete();
             try
             {
-                await ticker;
+                await Task.WhenAll(ticker, auditTicker);
             }
             catch (OperationCanceledException)
             {
             }
             db.Dispose();
             _log.LogInformation("RdpGuard stopped");
+        }
+    }
+
+    private async Task RunAuditCheckAsync(CancellationToken ct)
+    {
+        using var timer = new PeriodicTimer(AuditCheckInterval);
+        while (await timer.WaitForNextTickAsync(ct)) CheckLogonAuditing();
+    }
+
+    /// <summary>
+    /// Без аудита входов Windows не пишет 4625/4624, и служба слепнет. Групповая политика может откатить
+    /// настройку, поэтому проверка повторяется раз в час.
+    /// </summary>
+    private void CheckLogonAuditing()
+    {
+        var audit = _loggers.CreateLogger(LogEvents.AuditCategory);
+        try
+        {
+            var before = LogonAuditPolicy.Query();
+            if (before.IsComplete)
+            {
+                _metrics.LogonAudit = before;
+                return;
+            }
+
+            if (!_options.Detection.EnsureLogonAuditing)
+            {
+                _metrics.LogonAudit = before;
+                audit.LogWarning(LogEvents.LogonAuditing,
+                    "Logon auditing is '{State}': failed logons are not fully logged and RdpGuard cannot see them. " +
+                    "Enable it: auditpol /set /subcategory:\"Logon\" /success:enable /failure:enable", before);
+                return;
+            }
+
+            LogonAuditPolicy.EnsureEnabled();
+            var after = LogonAuditPolicy.Query();
+            _metrics.LogonAudit = after;
+            if (after.IsComplete)
+                audit.LogWarning(LogEvents.LogonAuditing,
+                    "Logon auditing was '{Before}'; enabled Success and Failure. If this repeats, a Group Policy is turning it off " +
+                    "(Advanced Audit Policy Configuration > Logon/Logoff > Audit Logon)", before);
+            else
+                audit.LogError(LogEvents.LogonAuditing, "Logon auditing is '{State}' and could not be enabled", after);
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(LogEvents.Error, ex, "Cannot check the logon audit policy");
         }
     }
 

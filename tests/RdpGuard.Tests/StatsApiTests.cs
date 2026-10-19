@@ -314,4 +314,14 @@ public class PrometheusWriterTests
         var text = PrometheusWriter.Render(metrics, null, false, "1.0", DateTime.UtcNow);
         Assert.Contains(@"rdpguard_events_read_total{channel=""we\""ird\\chan""} 1", text);
     }
+
+    [Fact]
+    public void LogonAudit_IsExportedForAlerting()
+    {
+        var metrics = new GuardMetrics { LogonAudit = new Events.LogonAuditState(Success: true, Failure: false) };
+        var text = PrometheusWriter.Render(metrics, null, false, "1.0", DateTime.UtcNow);
+        Assert.Contains("rdpguard_logon_audit_enabled{type=\"success\"} 1", text);
+        Assert.Contains("rdpguard_logon_audit_enabled{type=\"failure\"} 0", text);
+        Assert.Equal("Success only", metrics.LogonAudit.Value.ToString());
+    }
 }

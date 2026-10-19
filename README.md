@@ -100,5 +100,5 @@ RdpGuard uninstall --purge   # то же + БД, логи и источник ж
 
 - Windows Server 2016+ или Windows 10/11, x64.
 - Права администратора для установки и CLI; служба работает от LocalSystem.
-- Включённый аудит входа (`auditpol /get /subcategory:"Logon"`) и Windows Firewall.
+- Windows Firewall. Аудит входов (Success и Failure) RdpGuard включает сам и следит, чтобы он не выключался.
 - Для сборки: .NET SDK 8 или новее.

@@ -6,23 +6,34 @@
 |---|---|
 | ОС | Windows Server 2016 и новее, Windows 10/11, x64 |
 | Права | Администратор (установка, CLI); служба работает от LocalSystem |
-| Аудит | Должны записываться неудачные входы (событие 4625) |
+| Аудит | Аудит входов (Success и Failure) — `install` включает его сам |
 | Брандмауэр | Служба Windows Defender Firewall (MpsSvc) запущена, профили включены |
 | Сборка | .NET SDK 8+ (на сервере .NET не нужен — exe self-contained) |
 
-Проверить аудит:
+### Аудит входов
+
+Windows пишет события 4625 (неудачный вход) и 4624 (успешный) только при включённом аудите подкатегории
+**Logon**. Без 4625 RdpGuard ничего не видит, без 4624 — не отличает своих пользователей от атакующих.
+
+RdpGuard следит за этим сам:
+
+- `install` включает аудит Success и Failure, если он выключен;
+- служба проверяет настройку при старте и раз в час и включает её снова, если кто-то её выключил
+  (событие 1008 в журнале Application; параметр `Detection:EnsureLogonAuditing`);
+- `status` показывает текущее состояние, метрика `rdpguard_logon_audit_enabled` — для алерта.
+
+Проверить вручную:
 
 ```powershell
-auditpol /get /subcategory:"Logon"
+auditpol /get /subcategory:"{0CCE9215-69AE-11D9-BED3-505054503030}"
 ```
 
-Если в строке «Logon» нет `Failure`, включите:
-
-```powershell
-auditpol /set /subcategory:"Logon" /success:enable /failure:enable
-```
-
-Успешные входы (`/success`) нужны для защиты от бана адресов, с которых реально работают пользователи.
+> **Групповая политика.** Если аудит задан через GPO (*Computer Configuration → Policies → Windows Settings →
+> Security Settings → Advanced Audit Policy Configuration → Logon/Logoff → Audit Logon*), локальная настройка
+> откатывается при каждом обновлении политики, и событие 1008 будет повторяться. Тогда включите
+> Success и Failure в самой GPO для серверов. Если в GPO задана старая политика категорий
+> (*Audit Policy → Audit logon events*), включите и
+> *Audit: Force audit policy subcategory settings to override audit policy category settings*.
 
 ## Сборка
 
@@ -57,6 +68,7 @@ dotnet publish src/RdpGuard -c Release -r win-x64 -o publish
    - создаёт БД `%ProgramData%\RdpGuard\rdpguard.db`;
    - оставляет доступ к `%ProgramData%\RdpGuard` только SYSTEM и Administrators (там адреса и имена учётных записей);
    - создаёт источник `RdpGuard` в журнале Application;
+   - включает аудит входов (Success и Failure), если он выключен;
    - регистрирует службу `RdpGuard`: LocalSystem, автозапуск, зависимости EventLog и MpsSvc;
    - настраивает перезапуск при сбое: через 5 с, 15 с, 60 с, счётчик сбоев обнуляется через сутки;
    - запускает службу (`--no-start` — не запускать).

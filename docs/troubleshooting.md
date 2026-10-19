@@ -29,14 +29,10 @@ Get-NetFirewallRule -DisplayName 'RdpGuard-*' | Remove-NetFirewallRule
 
 ## Попыток нет (`Attempts 24h: 0`), хотя атаки идут
 
-1. Аудит неудачных входов:
-
-   ```powershell
-   auditpol /get /subcategory:"Logon"
-   ```
-
-   Нужно `Success and Failure`. Включить: `auditpol /set /subcategory:"Logon" /success:enable /failure:enable`.
-   Проверьте, не перекрывает ли это групповая политика (`gpresult /h report.html`).
+1. Аудит входов: `RdpGuard status` → `Logon auditing` должно быть `Success and Failure`.
+   Служба включает его сама; если в журнале Application повторяется событие 1008 — аудит выключает
+   групповая политика, настройте её (см. [аудит входов](installation.md#аудит-входов)).
+   Проверить, какие GPO применяются: `gpresult /h report.html`.
 
 2. Есть ли события:
 

@@ -88,6 +88,9 @@ public sealed class GuardMetrics
         FirewallSyncs.Inc("ok");
     }
 
+    /// <summary>Последнее известное состояние аудита входов (null — не проверялось или не удалось).</summary>
+    public Events.LogonAuditState? LogonAudit { get; set; }
+
     /// <summary>Длина очереди событий (задаётся службой).</summary>
     public Func<int>? QueueLength { get; set; }
 

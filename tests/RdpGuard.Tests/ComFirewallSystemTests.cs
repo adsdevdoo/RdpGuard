@@ -131,3 +131,15 @@ public class ComFirewallSystemTests
         Assert.Empty(fw.GetRules(name));
     }
 }
+
+[Trait("Category", "System")]
+public class LogonAuditPolicySystemTests
+{
+    [SystemFact]
+    public void Query_ReadsAuditPolicy()
+    {
+        // Только чтение; включение (EnsureEnabled) не тестируется, чтобы не менять политику машины.
+        var state = Events.LogonAuditPolicy.Query();
+        Assert.False(string.IsNullOrEmpty(state.ToString()));
+    }
+}

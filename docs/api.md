@@ -238,6 +238,7 @@ curl -H "Authorization: Bearer rg_..." http://win-server-01:9645/metrics
 | `rdpguard_dry_run` | 1 — DryRun |
 | `rdpguard_start_time_seconds` | Время запуска процесса (Unix) |
 | `rdpguard_queue_length` | Событий в очереди на запись |
+| `rdpguard_logon_audit_enabled{type="success"\|"failure"}` | 1 — Windows пишет такие входы в журнал (проверка раз в час) |
 | `rdpguard_last_event_timestamp_seconds{channel}` | Время последнего обработанного события входа |
 | `rdpguard_firewall_rules`, `rdpguard_firewall_addresses` | Правил и адресов после последней сверки (нет в DryRun) |
 | `rdpguard_firewall_last_sync_timestamp_seconds` | Время последней успешной сверки |

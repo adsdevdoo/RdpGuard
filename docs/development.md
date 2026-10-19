@@ -33,6 +33,18 @@ dotnet test --filter "Category=System"
 
 Именно они нашли, что брандмауэр возвращает одиночный IPv6 как диапазон `addr-addr`.
 
+### Аудит зависимостей
+
+```powershell
+dotnet list package --vulnerable --include-transitive
+dotnet list package --deprecated
+dotnet list src/RdpGuard package --outdated --highest-patch --include-transitive
+```
+
+`Microsoft.Data.Sqlite` 8.0.x по умолчанию тянет `SQLitePCLRaw` 2.1.6 с уязвимой SQLite
+(GHSA-2m69-gcr7-jv3q), поэтому `SQLitePCLRaw.bundle_e_sqlite3` зафиксирован в `RdpGuard.csproj` явно.
+При обновлении пакетов не удаляйте эту ссылку, пока транзитивная версия не станет ≥ 2.1.11.
+
 ## Структура
 
 ```
@@ -100,6 +112,7 @@ grafana/rdpguard-dashboard.json
 | 1004 / 1005 | Warning | Ручной бан / разбан |
 | 1006 | Warning | Изменение белого списка |
 | 1007 | Warning | Создание / отзыв API-токена |
+| 1008 | Warning / Error | Аудит входов был выключен и включён службой (или включить не удалось) |
 | 1010 | Information | Изменение правил брандмауэра (только файл) |
 | 1900 | Error | Ошибка обработки / конфигурации |
 | 1901 | Error | Ошибка брандмауэра |

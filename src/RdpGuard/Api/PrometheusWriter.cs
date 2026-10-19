@@ -38,6 +38,13 @@ public static class PrometheusWriter
             if (length is { } n) Gauge(sb, "rdpguard_queue_length", "Events waiting to be written to the database.", n);
         }
 
+        if (metrics.LogonAudit is { } audit)
+        {
+            Header(sb, "rdpguard_logon_audit_enabled", "1 if Windows logs logons of this type (Audit Logon subcategory).", "gauge");
+            Sample(sb, "rdpguard_logon_audit_enabled", audit.Success ? 1 : 0, ("type", "success"));
+            Sample(sb, "rdpguard_logon_audit_enabled", audit.Failure ? 1 : 0, ("type", "failure"));
+        }
+
         if (metrics.LastEventUtc.Count > 0)
         {
             Header(sb, "rdpguard_last_event_timestamp_seconds", "Time of the newest processed logon event, per channel.", "gauge");

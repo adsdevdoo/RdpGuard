@@ -210,6 +210,19 @@ public static class CliApp
         ServiceInstaller.EnsureEventSource();
         Console.WriteLine("Event log:  source 'RdpGuard' in the Application log");
 
+        try
+        {
+            var before = LogonAuditPolicy.Query();
+            Console.WriteLine(LogonAuditPolicy.EnsureEnabled()
+                ? $"Auditing:   logon auditing was '{before}', enabled Success and Failure"
+                : "Auditing:   logon auditing already logs Success and Failure");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Auditing:   could not enable logon auditing ({ex.Message}); " +
+                              "run: auditpol /set /subcategory:\"Logon\" /success:enable /failure:enable");
+        }
+
         bool existed = ServiceInstaller.GetStatus() is not null;
         if (existed && ServiceInstaller.IsRunning()) ServiceInstaller.Stop(TimeSpan.FromSeconds(30));
         ServiceInstaller.InstallOrUpdate(exe);
@@ -305,6 +318,16 @@ public static class CliApp
         long logons24 = db.ScalarLong("SELECT COUNT(*) FROM successes WHERE ts_utc >= $s", ("$s", DbTime.ToDb(now.AddDays(-1))));
         Console.WriteLine($"New bans 24h:     {bans24}");
         Console.WriteLine($"External logons:  {logons24} in 24h (see the Application log, event 1003)");
+
+        try
+        {
+            var audit = LogonAuditPolicy.Query();
+            Console.WriteLine($"Logon auditing:   {audit}" + (audit.IsComplete ? "" : "  <-- WARNING: failed logons may not be logged"));
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Logon auditing:   cannot read ({ex.Message})");
+        }
 
         var sec = ctx.Repo.GetBookmark(EventParser.SecurityChannel);
         var rdp = ctx.Repo.GetBookmark(EventParser.RdpCoreTsChannel);

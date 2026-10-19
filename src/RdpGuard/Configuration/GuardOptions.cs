@@ -86,6 +86,12 @@ public sealed class DetectionOptions
     public int InitialLookbackMinutes { get; set; } = 60;
     public bool TrackSuccessfulLogons { get; set; } = true;
 
+    /// <summary>
+    /// Проверять при старте и раз в час, что аудит входов (Success и Failure) включён, и включать его.
+    /// Без него 4625/4624 не пишутся и служба ничего не видит.
+    /// </summary>
+    public bool EnsureLogonAuditing { get; set; } = true;
+
     public IReadOnlySet<int> EffectiveLogonTypes =>
         LogonTypes.Count == 0 ? new HashSet<int> { 3, 10 } : LogonTypes.ToHashSet();
 }
