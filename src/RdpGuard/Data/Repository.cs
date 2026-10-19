@@ -31,6 +31,12 @@ public sealed record BanRow(
 
 public sealed record WhitelistRow(string Cidr, DateTime AddedUtc, string? Note);
 
+/// <summary>Счётчики неудач одного IP по окнам политики.</summary>
+public sealed record FailureStats(int Fast, int Slow, int NoSuchUser, int WrongPassword);
+
+/// <summary>Неверные пароли к одной учётке со всех адресов.</summary>
+public sealed record AccountAttack(string User, int WrongPasswords, int Ips);
+
 /// <summary>Все SQL-запросы приложения.</summary>
 public sealed class Repository
 {
@@ -113,11 +119,11 @@ public sealed class Repository
 
     public void InsertAttempt(AuthEvent e) =>
         Db.Exec("""
-                INSERT INTO attempts(ts_utc, ip, user_name, logon_type, event_id, record_id)
-                VALUES($ts, $ip, $user, $lt, $eid, $rid)
+                INSERT INTO attempts(ts_utc, ip, user_name, logon_type, event_id, record_id, sub_status)
+                VALUES($ts, $ip, $user, $lt, $eid, $rid, $sub)
                 """,
             ("$ts", DbTime.ToDb(e.TimeUtc)), ("$ip", e.Ip), ("$user", e.UserName), ("$lt", e.LogonType),
-            ("$eid", e.EventId), ("$rid", e.RecordId > 0 ? e.RecordId : null));
+            ("$eid", e.EventId), ("$rid", e.RecordId > 0 ? e.RecordId : null), ("$sub", e.SubStatus is { } s ? (long)s : null));
 
     public void InsertSuccess(AuthEvent e) =>
         Db.Exec("""
@@ -131,6 +137,61 @@ public sealed class Repository
     public int CountFailures(string ip, DateTime sinceExclusiveUtc, DateTime untilInclusiveUtc) =>
         (int)Db.ScalarLong("SELECT COUNT(*) FROM attempts WHERE ip = $ip AND ts_utc > $since AND ts_utc <= $until",
             ("$ip", ip), ("$since", DbTime.ToDb(sinceExclusiveUtc)), ("$until", DbTime.ToDb(untilInclusiveUtc)));
+
+    /// <summary>
+    /// Неудачи IP в окнах политики, одним запросом. Каждое окно — (начало, until];
+    /// начала окон уже обрезаны концом предыдущего бана.
+    /// </summary>
+    public FailureStats GetFailureStats(string ip, DateTime untilUtc, DateTime fastSince, DateTime slowSince,
+        DateTime noSuchUserSince, DateTime wrongPasswordSince)
+    {
+        var from = new[] { fastSince, slowSince, noSuchUserSince, wrongPasswordSince }.Min();
+        return Db.Query("""
+                        SELECT
+                          COALESCE(SUM(CASE WHEN ts_utc > $fast THEN 1 ELSE 0 END), 0),
+                          COALESCE(SUM(CASE WHEN ts_utc > $slow THEN 1 ELSE 0 END), 0),
+                          COALESCE(SUM(CASE WHEN ts_utc > $nus AND sub_status = $nouser THEN 1 ELSE 0 END), 0),
+                          COALESCE(SUM(CASE WHEN ts_utc > $wps AND sub_status = $wrong THEN 1 ELSE 0 END), 0)
+                        FROM attempts
+                        WHERE ip = $ip AND ts_utc > $from AND ts_utc <= $until
+                        """,
+            r => new FailureStats(r.GetInt32(0), r.GetInt32(1), r.GetInt32(2), r.GetInt32(3)),
+            ("$ip", ip), ("$until", DbTime.ToDb(untilUtc)), ("$from", DbTime.ToDb(from)),
+            ("$fast", DbTime.ToDb(fastSince)), ("$slow", DbTime.ToDb(slowSince)),
+            ("$nus", DbTime.ToDb(noSuchUserSince)), ("$wps", DbTime.ToDb(wrongPasswordSince)),
+            ("$nouser", (long)FailureCodes.NoSuchUser), ("$wrong", (long)FailureCodes.WrongPassword)).Single();
+    }
+
+    /// <summary>Время последних неудач IP по возрастанию (для детектора «по таймеру»).</summary>
+    public List<DateTime> GetRecentFailureTimes(string ip, DateTime sinceExclusiveUtc, DateTime untilInclusiveUtc, int limit)
+    {
+        var times = Db.Query("""
+                             SELECT ts_utc FROM attempts
+                             WHERE ip = $ip AND ts_utc > $since AND ts_utc <= $until
+                             ORDER BY ts_utc DESC LIMIT $limit
+                             """, r => DbTime.FromDb(r.GetString(0)),
+            ("$ip", ip), ("$since", DbTime.ToDb(sinceExclusiveUtc)), ("$until", DbTime.ToDb(untilInclusiveUtc)), ("$limit", limit));
+        times.Reverse();
+        return times;
+    }
+
+    /// <summary>Учётки, к которым подбирали пароль (0xC000006A), со всех адресов.</summary>
+    public List<AccountAttack> GetWrongPasswordsByAccount(DateTime sinceUtc, int limit)
+    {
+        // Регистр сворачиваем в C#: lower() в SQLite не понимает кириллицу ("Администратор" / "администратор").
+        var rows = Db.Query("""
+                            SELECT user_name, ip, COUNT(*) FROM attempts
+                            WHERE ts_utc >= $since AND sub_status = $wrong AND user_name IS NOT NULL
+                            GROUP BY user_name, ip
+                            """, r => (User: r.GetString(0), Ip: r.GetString(1), N: r.GetInt32(2)),
+            ("$since", DbTime.ToDb(sinceUtc)), ("$wrong", (long)FailureCodes.WrongPassword));
+        return rows.GroupBy(r => r.User.ToLowerInvariant())
+            .Select(g => new AccountAttack(g.OrderByDescending(r => r.N).First().User, g.Sum(r => r.N),
+                g.Select(r => r.Ip).Distinct(StringComparer.OrdinalIgnoreCase).Count()))
+            .OrderByDescending(a => a.WrongPasswords)
+            .Take(limit)
+            .ToList();
+    }
 
     public int PruneAttempts(DateTime cutoffUtc) =>
         Db.Exec("DELETE FROM attempts WHERE ts_utc < $c", ("$c", DbTime.ToDb(cutoffUtc)));

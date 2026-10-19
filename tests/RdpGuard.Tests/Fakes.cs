@@ -84,10 +84,10 @@ public sealed class FakeEventSource(IEnumerable<WorkItem> items, bool complete =
     private static long _record = 1000;
 
     public static RecordWork Failure(string ip, DateTime timeUtc, string user = "admin", int eventId = 4625,
-        string channel = EventParser.SecurityChannel)
+        string channel = EventParser.SecurityChannel, uint? subStatus = null)
     {
         long id = Interlocked.Increment(ref _record);
-        return new RecordWork(channel, id, new AuthEvent(AuthEventKind.Failure, channel, eventId, id, timeUtc, ip, user, 3));
+        return new RecordWork(channel, id, new AuthEvent(AuthEventKind.Failure, channel, eventId, id, timeUtc, ip, user, 3, subStatus));
     }
 
     public static RecordWork Success(string ip, DateTime timeUtc, string user = "alice")

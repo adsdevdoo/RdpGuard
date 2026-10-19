@@ -16,8 +16,8 @@ public static class EventParser
     public const int SuccessfulLogonId = 4624;
     public const int RdpAuthFailedId = 140;
 
-    // 4625: 5 TargetUserName, 10 LogonType, 19 IpAddress
-    private const int F_User = 5, F_LogonType = 10, F_Ip = 19;
+    // 4625: 5 TargetUserName, 9 SubStatus, 10 LogonType, 19 IpAddress
+    private const int F_User = 5, F_SubStatus = 9, F_LogonType = 10, F_Ip = 19;
     // 4624: 5 TargetUserName, 8 LogonType, 18 IpAddress
     private const int S_User = 5, S_LogonType = 8, S_Ip = 18;
     // RdpCoreTS 140: 0 ClientIP
@@ -32,7 +32,10 @@ public static class EventParser
         if (IsChannel(channel, SecurityChannel))
         {
             if (eventId == FailedLogonId)
-                return ParseLogon(AuthEventKind.Failure, channel, eventId, recordId, timeUtc, props, F_User, F_LogonType, F_Ip, logonTypes);
+            {
+                var failure = ParseLogon(AuthEventKind.Failure, channel, eventId, recordId, timeUtc, props, F_User, F_LogonType, F_Ip, logonTypes);
+                return failure is null ? null : failure with { SubStatus = AsUInt(props[F_SubStatus]) };
+            }
             if (eventId == SuccessfulLogonId)
                 return ParseLogon(AuthEventKind.Success, channel, eventId, recordId, timeUtc, props, S_User, S_LogonType, S_Ip, logonTypes);
             return null;
@@ -86,6 +89,30 @@ public static class EventParser
                 uint u => (int)u,
                 string s => int.TryParse(s.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var r) ? r : null,
                 IConvertible c => c.ToInt32(CultureInfo.InvariantCulture),
+                _ => null,
+            };
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>NTSTATUS приходит как uint, а в части API — как отрицательный int.</summary>
+    private static uint? AsUInt(object? value)
+    {
+        try
+        {
+            return value switch
+            {
+                null => null,
+                uint u => u,
+                int i => unchecked((uint)i),
+                long l => unchecked((uint)l),
+                string s when s.StartsWith("0x", StringComparison.OrdinalIgnoreCase) =>
+                    uint.TryParse(s[2..], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var h) ? h : null,
+                string s => uint.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var d) ? d : null,
+                IConvertible c => unchecked((uint)c.ToInt64(CultureInfo.InvariantCulture)),
                 _ => null,
             };
         }

@@ -34,7 +34,8 @@ RdpGuard <команда> [аргументы] [--опции]
 Service:          Running
 Mode:             enforcing
 Database:         C:\ProgramData\RdpGuard\rdpguard.db (schema v2)
-Policy:           ban after 10 failures in 10m; 1d x2 per offense, max 30d
+Ban rules:        5 wrong passwords/1d, 3 unknown users/1d, 5 at regular intervals, 5/10m, 15/1d
+Ban duration:     1d x2 per offense, max 30d
 Active bans:      49 (permanent: 0)
 Attempts 1h:      1504 from 38 IP(s)
 Attempts 24h:     21652 from 65 IP(s)

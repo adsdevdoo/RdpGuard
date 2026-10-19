@@ -299,8 +299,8 @@ public static class CliApp
         Console.WriteLine($"Service:          {(status is null ? "not installed" : status.ToString())}");
         Console.WriteLine($"Mode:             {(ctx.Options.DryRun ? "DRY RUN (firewall is not modified)" : "enforcing")}");
         Console.WriteLine($"Database:         {db.Path} (schema v{db.CurrentSchemaVersion})");
-        Console.WriteLine($"Policy:           ban after {ctx.Options.Policy.MaxFailures} failures in {BanPolicy.FormatSpan(ctx.Options.Policy.FailureWindow)}; " +
-                          $"{BanPolicy.FormatSpan(ctx.Options.Policy.BaseBanDuration)} x2 per offense, max {BanPolicy.FormatSpan(ctx.Options.Policy.MaxBanDuration)}" +
+        Console.WriteLine($"Ban rules:        {BanPolicy.DescribeRules(ctx.Options.Policy)}");
+        Console.WriteLine($"Ban duration:     {BanPolicy.FormatSpan(ctx.Options.Policy.BaseBanDuration)} x2 per offense, max {BanPolicy.FormatSpan(ctx.Options.Policy.MaxBanDuration)}" +
                           (ctx.Options.Policy.PermanentAfterOffenses > 0 ? $", permanent after {ctx.Options.Policy.PermanentAfterOffenses} offenses" : ""));
 
         var active = ctx.Repo.GetActiveBans(now);
@@ -313,6 +313,9 @@ public static class CliApp
             long ips = db.ScalarLong("SELECT COUNT(DISTINCT ip) FROM attempts WHERE ts_utc >= $s", ("$s", since));
             Console.WriteLine($"{label,-17} {n} from {ips} IP(s)");
         }
+
+        foreach (var attack in new StatsQueries(db).Summary(now).AccountAttacks.Take(3))
+            Console.WriteLine($"Password guessing: {attack.User}: {attack.WrongPasswords} wrong password(s) from {attack.Ips} IP(s) in 24h");
 
         long bans24 = db.ScalarLong("SELECT COUNT(*) FROM bans WHERE banned_at_utc >= $s", ("$s", DbTime.ToDb(now.AddDays(-1))));
         long logons24 = db.ScalarLong("SELECT COUNT(*) FROM successes WHERE ts_utc >= $s", ("$s", DbTime.ToDb(now.AddDays(-1))));

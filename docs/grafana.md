@@ -113,6 +113,12 @@ groups:
         annotations:
           summary: "RdpGuard processing errors ({{ $labels.stage }}) on {{ $labels.instance }}"
 
+      - alert: RdpGuardDistributedPasswordGuessing
+        expr: rdpguard_account_wrong_password_ips_last_24h >= 3 and rdpguard_account_wrong_passwords_last_24h >= 20
+        annotations:
+          summary: "Account {{ $labels.account }} on {{ $labels.instance }} is being guessed from many addresses"
+          description: "Per-IP bans do not stop distributed guessing. Check the password, rename the account, restrict RDP."
+
       - alert: RdpGuardLogonAuditingOff
         expr: rdpguard_logon_audit_enabled == 0
         for: 2h

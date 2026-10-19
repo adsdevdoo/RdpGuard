@@ -14,7 +14,8 @@ public sealed record StatsSummary(
     long WhitelistEntries,
     long TotalBans,
     IReadOnlyDictionary<string, int> ActiveBansByOffense,
-    DateTime? LastFailureUtc);
+    DateTime? LastFailureUtc,
+    IReadOnlyList<AccountAttack> AccountAttacks);
 
 public sealed record TopIpRow(
     string Ip,
@@ -68,7 +69,8 @@ public sealed class StatsQueries
             _db.ScalarLong("SELECT COUNT(*) FROM whitelist"),
             _db.ScalarLong("SELECT COUNT(*) FROM bans"),
             byOffense,
-            DbTime.FromDbNullable(_db.Scalar("SELECT MAX(ts_utc) FROM attempts")));
+            DbTime.FromDbNullable(_db.Scalar("SELECT MAX(ts_utc) FROM attempts")),
+            _repo.GetWrongPasswordsByAccount(nowUtc.AddDays(-1), 20));
     }
 
     public List<TopIpRow> TopIps(DateTime sinceUtc, int limit, DateTime nowUtc, int usersPerIp = 3)

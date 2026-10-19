@@ -24,7 +24,7 @@ public static class DbTime
 /// <summary>Соединение с SQLite (WAL) и миграции схемы.</summary>
 public sealed class GuardDb : IDisposable
 {
-    public const int SchemaVersion = 2;
+    public const int SchemaVersion = 3;
 
     private static readonly string[][] Migrations =
     {
@@ -98,6 +98,11 @@ public sealed class GuardDb : IDisposable
                 created_utc  TEXT NOT NULL,
                 revoked_utc  TEXT NULL)
             """,
+        },
+        // v3: код причины отказа (SubStatus 4625) — для правил «нет такого пользователя» / «неверный пароль»
+        new[]
+        {
+            "ALTER TABLE attempts ADD COLUMN sub_status INTEGER NULL",
         },
     };
 
@@ -181,11 +186,22 @@ public sealed class GuardDb : IDisposable
             using var tx = Begin(immediate: true);
             int version = CurrentSchemaVersion; // перечитываем под блокировкой: CLI и служба могут мигрировать одновременно
             if (version >= Migrations.Length) return;
-            foreach (var sql in Migrations[version]) Exec(sql);
+            foreach (var sql in Migrations[version])
+            {
+                // ADD COLUMN не идемпотентна: пропускаем, если колонка уже есть (повторная или прерванная миграция).
+                var m = System.Text.RegularExpressions.Regex.Match(sql, @"^ALTER TABLE (\w+) ADD COLUMN (\w+)",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                if (m.Success && ColumnExists(m.Groups[1].Value, m.Groups[2].Value)) continue;
+                Exec(sql);
+            }
             SetState("schema_version", (version + 1).ToString(CultureInfo.InvariantCulture));
             tx.Commit();
         }
     }
+
+    public bool ColumnExists(string table, string column) =>
+        Query($"PRAGMA table_info({table})", r => r.GetString(1))
+            .Any(c => string.Equals(c, column, StringComparison.OrdinalIgnoreCase));
 
     public Tx Begin(bool immediate = false)
     {

@@ -34,8 +34,21 @@ public sealed class GuardOptions
     {
         var errors = new List<string>();
         var p = Policy;
-        if (p.MaxFailures < 1) errors.Add("Policy:MaxFailures must be >= 1");
+        if (p.MaxFailures < 0) errors.Add("Policy:MaxFailures must be >= 0 (0 disables the rule)");
         if (p.FailureWindow <= TimeSpan.Zero) errors.Add("Policy:FailureWindow must be positive");
+        if (p.SlowMaxFailures < 0) errors.Add("Policy:SlowMaxFailures must be >= 0");
+        if (p.SlowFailureWindow <= TimeSpan.Zero) errors.Add("Policy:SlowFailureWindow must be positive");
+        if (p.NoSuchUserMaxFailures < 0) errors.Add("Policy:NoSuchUserMaxFailures must be >= 0");
+        if (p.NoSuchUserWindow <= TimeSpan.Zero) errors.Add("Policy:NoSuchUserWindow must be positive");
+        if (p.WrongPasswordMaxFailures < 0) errors.Add("Policy:WrongPasswordMaxFailures must be >= 0");
+        if (p.WrongPasswordWindow <= TimeSpan.Zero) errors.Add("Policy:WrongPasswordWindow must be positive");
+        if (p.PeriodicMinAttempts is < 0 or 1 or 2) errors.Add("Policy:PeriodicMinAttempts must be 0 (off) or >= 3");
+        if (p.PeriodicMaxDeviation is < 0 or > 1) errors.Add("Policy:PeriodicMaxDeviation must be 0..1");
+        if (p.PeriodicWindow <= TimeSpan.Zero) errors.Add("Policy:PeriodicWindow must be positive");
+        if (p.AccountAlertWrongPasswords < 0 || p.AccountAlertMinIps < 0) errors.Add("Policy:AccountAlert* must be >= 0");
+        if (p.MaxFailures == 0 && p.SlowMaxFailures == 0 && p.NoSuchUserMaxFailures == 0
+            && p.WrongPasswordMaxFailures == 0 && p.PeriodicMinAttempts == 0)
+            errors.Add("Policy: all ban rules are disabled");
         if (p.BaseBanDuration <= TimeSpan.Zero) errors.Add("Policy:BaseBanDuration must be positive");
         if (p.MaxBanDuration < p.BaseBanDuration) errors.Add("Policy:MaxBanDuration must be >= BaseBanDuration");
         if (p.PermanentAfterOffenses < 0) errors.Add("Policy:PermanentAfterOffenses must be >= 0");
@@ -96,10 +109,42 @@ public sealed class DetectionOptions
         LogonTypes.Count == 0 ? new HashSet<int> { 3, 10 } : LogonTypes.ToHashSet();
 }
 
+/// <summary>
+/// Правила бана. Любое сработавшее правило даёт бан; правило с порогом 0 выключено.
+/// Все окна начинаются не раньше конца предыдущего бана адреса.
+/// </summary>
 public sealed class PolicyOptions
 {
-    public int MaxFailures { get; set; } = 10;
+    /// <summary>Быстрый перебор: столько неудач за FailureWindow.</summary>
+    public int MaxFailures { get; set; } = 5;
     public TimeSpan FailureWindow { get; set; } = TimeSpan.FromMinutes(10);
+
+    /// <summary>Медленный перебор: столько неудач за SlowFailureWindow.</summary>
+    public int SlowMaxFailures { get; set; } = 15;
+    public TimeSpan SlowFailureWindow { get; set; } = TimeSpan.FromDays(1);
+
+    /// <summary>Перебор имён: столько попыток с несуществующим именем (SubStatus 0xC0000064).</summary>
+    public int NoSuchUserMaxFailures { get; set; } = 3;
+    public TimeSpan NoSuchUserWindow { get; set; } = TimeSpan.FromDays(1);
+
+    /// <summary>Подбор пароля к существующей учётке: столько неверных паролей (SubStatus 0xC000006A).</summary>
+    public int WrongPasswordMaxFailures { get; set; } = 5;
+    public TimeSpan WrongPasswordWindow { get; set; } = TimeSpan.FromDays(1);
+
+    /// <summary>«По таймеру»: столько попыток подряд с почти равными интервалами; 0 — выключено.</summary>
+    public int PeriodicMinAttempts { get; set; } = 5;
+    /// <summary>Допустимое отклонение интервала от среднего, доля (0.1 = 10%).</summary>
+    public double PeriodicMaxDeviation { get; set; } = 0.1;
+    /// <summary>В каком окне искать серию.</summary>
+    public TimeSpan PeriodicWindow { get; set; } = TimeSpan.FromDays(1);
+
+    /// <summary>
+    /// Предупреждение (не бан) о распределённом подборе: столько неверных паролей к одной учётке
+    /// за сутки со всех адресов, и не меньше AccountAlertMinIps разных адресов. 0 — выключено.
+    /// </summary>
+    public int AccountAlertWrongPasswords { get; set; } = 20;
+    public int AccountAlertMinIps { get; set; } = 3;
+
     public TimeSpan BaseBanDuration { get; set; } = TimeSpan.FromDays(1);
     public TimeSpan MaxBanDuration { get; set; } = TimeSpan.FromDays(30);
     public int PermanentAfterOffenses { get; set; }

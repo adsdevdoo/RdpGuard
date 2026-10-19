@@ -59,6 +59,10 @@ public sealed class GuardMetrics
         new CounterFamily("rdpguard_bans_total", "Automatic bans issued by this process, per offense number.", "offense")
             .WithZero("1", "2", "3", "4", "5+");
 
+    public CounterFamily BanTriggers { get; } =
+        new CounterFamily("rdpguard_ban_triggers_total", "Automatic bans issued by this process, per rule that fired.", "rule")
+            .WithZero(Policy.BanRules.All);
+
     public CounterFamily Unbans { get; } =
         new CounterFamily("rdpguard_unbans_total", "Bans lifted by this process, per reason.", "reason")
             .WithZero("expired", "successful_logon", "whitelisted");
@@ -101,6 +105,7 @@ public sealed class GuardMetrics
         yield return DuplicateFailures;
         yield return ExternalLogons;
         yield return Bans;
+        yield return BanTriggers;
         yield return Unbans;
         yield return Errors;
         yield return FirewallSyncs;

@@ -18,6 +18,7 @@ public static class LogEvents
     public static readonly EventId WhitelistChanged = new(1006, nameof(WhitelistChanged));
     public static readonly EventId ApiTokenChanged = new(1007, nameof(ApiTokenChanged));
     public static readonly EventId LogonAuditing = new(1008, nameof(LogonAuditing));
+    public static readonly EventId AccountAttack = new(1009, nameof(AccountAttack));
     public static readonly EventId FirewallChanged = new(1010, nameof(FirewallChanged));
     public static readonly EventId Error = new(1900, nameof(Error));
     public static readonly EventId FirewallError = new(1901, nameof(FirewallError));

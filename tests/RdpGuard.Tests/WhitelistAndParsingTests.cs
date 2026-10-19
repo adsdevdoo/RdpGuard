@@ -240,3 +240,43 @@ public class DeduplicatorTests
         Assert.False(d.IsDuplicate(Ev(EventParser.RdpCoreTsChannel, "1.1.1.1", T.AddSeconds(30)), T));
     }
 }
+
+public class SubStatusParsingTests
+{
+    private static readonly IReadOnlySet<int> Types = new RdpGuard.Configuration.DetectionOptions().EffectiveLogonTypes;
+
+    private static object?[] Props(object subStatus)
+    {
+        var p = new object?[21];
+        for (int i = 0; i < p.Length; i++) p[i] = "-";
+        p[5] = "admin";
+        p[9] = subStatus;
+        p[10] = 3u;
+        p[19] = "203.0.113.5";
+        return p;
+    }
+
+    [Theory]
+    [InlineData(-1073741724, FailureReason.NoSuchUser)]    // 0xC0000064 как отрицательный int
+    [InlineData(-1073741718, FailureReason.WrongPassword)] // 0xC000006A
+    [InlineData(-1073741714, FailureReason.Other)]         // 0xC000006E (ограничение учётки)
+    public void SubStatus_IsParsedFromSignedInt(int raw, FailureReason expected)
+    {
+        var e = EventParser.Parse("Security", 4625, 1, DateTime.UtcNow, Props(raw), Types)!;
+        Assert.Equal(expected, e.Reason);
+    }
+
+    [Fact]
+    public void SubStatus_IsParsedFromUInt_AndHexString()
+    {
+        Assert.Equal(FailureReason.WrongPassword, EventParser.Parse("Security", 4625, 1, DateTime.UtcNow, Props(0xC000006Au), Types)!.Reason);
+        Assert.Equal(FailureReason.NoSuchUser, EventParser.Parse("Security", 4625, 1, DateTime.UtcNow, Props("0xC0000064"), Types)!.Reason);
+    }
+
+    [Fact]
+    public void Rdp140_HasUnknownReason()
+    {
+        var e = EventParser.Parse(EventParser.RdpCoreTsChannel, 140, 1, DateTime.UtcNow, new object?[] { "203.0.113.5" }, Types)!;
+        Assert.Equal(FailureReason.Unknown, e.Reason);
+    }
+}

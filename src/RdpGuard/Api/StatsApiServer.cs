@@ -215,6 +215,7 @@ public sealed class StatsApiServer : BackgroundService
                             s.TotalBans,
                             s.ActiveBansByOffense,
                             s.LastFailureUtc,
+                            accountAttacks = s.AccountAttacks,
                             firewallRules = _metrics.LastFirewallSync?.Rules,
                             firewallAddresses = _metrics.LastFirewallSync?.Addresses,
                             lastFirewallSyncUtc = _metrics.LastFirewallSyncUtc,

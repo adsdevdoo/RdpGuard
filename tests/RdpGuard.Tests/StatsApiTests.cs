@@ -51,6 +51,10 @@ public sealed class StatsApiTests : IAsyncLifetime
         }
         repo.InsertAttempt(new Events.AuthEvent(Events.AuthEventKind.Failure, "Security", 4625, 100,
             now.AddHours(-3), "198.51.100.5", "backup", 3));
+        // Подбор пароля к существующей учётке (SubStatus 0xC000006A) — для метрики по учёткам.
+        for (int i = 0; i < 3; i++)
+            repo.InsertAttempt(new Events.AuthEvent(Events.AuthEventKind.Failure, "Security", 4625, 200 + i,
+                now.AddHours(-5).AddMinutes(i * 38), "198.51.100.5", "backup", 3, Events.FailureCodes.WrongPassword));
         repo.InsertBan("203.0.113.10", now.AddMinutes(-28), now.AddDays(1), 1, "test", 10);
         repo.InsertBan("198.51.100.9", now.AddDays(-2), null, 6, "test", 10);
         _token = ApiTokens.Create(repo, "grafana", now);
@@ -158,6 +162,9 @@ public sealed class StatsApiTests : IAsyncLifetime
         Assert.Contains("# TYPE rdpguard_failed_logons_total counter", text);
         Assert.Contains("rdpguard_failed_logons_total{event_id=\"4625\"} 13", text);
         Assert.Contains("rdpguard_database_up 1", text);
+        Assert.Contains("rdpguard_account_wrong_passwords_last_24h{account=\"backup\"} 3", text);
+        Assert.Contains("rdpguard_account_wrong_password_ips_last_24h{account=\"backup\"} 1", text);
+        Assert.Contains("rdpguard_ban_triggers_total{rule=\"periodic\"} 0", text);
         Assert.Contains("rdpguard_dry_run 1", text);
         // Адреса атакующих в метки Prometheus не попадают (кардинальность).
         Assert.DoesNotContain("203.0.113.10", text);
@@ -169,7 +176,10 @@ public sealed class StatsApiTests : IAsyncLifetime
         var j = await GetJson("api/summary");
         Assert.Equal(2, j.GetProperty("activeBans").GetInt32());
         Assert.Equal(1, j.GetProperty("permanentBans").GetInt32());
-        Assert.Equal(13, j.GetProperty("failedLogons24h").GetInt64());
+        Assert.Equal(16, j.GetProperty("failedLogons24h").GetInt64());
+        var attack = Assert.Single(j.GetProperty("accountAttacks").EnumerateArray());
+        Assert.Equal("backup", attack.GetProperty("user").GetString());
+        Assert.Equal(3, attack.GetProperty("wrongPasswords").GetInt32());
         Assert.True(j.GetProperty("dryRun").GetBoolean());
         Assert.EndsWith("Z", j.GetProperty("generatedUtc").GetString());
     }
@@ -181,6 +191,7 @@ public sealed class StatsApiTests : IAsyncLifetime
         Assert.Equal(2, j.GetArrayLength());
         var first = j[0];
         Assert.Equal("203.0.113.10", first.GetProperty("ip").GetString());
+        Assert.Equal(4, j[1].GetProperty("attempts").GetInt64());
         Assert.Equal(12, first.GetProperty("attempts").GetInt64());
         Assert.True(first.GetProperty("banned").GetBoolean());
         Assert.Contains("admin(6)", first.GetProperty("topUsers").GetString());
@@ -267,17 +278,28 @@ public class ApiTokenAndSchemaTests : IDisposable
     }
 
     [Fact]
-    public void SchemaV1_IsMigratedToV2()
+    public void SchemaV1_IsMigratedToCurrent()
     {
         using (var db = GuardDb.Open(_path))
         {
             db.Exec("DROP TABLE api_tokens");
+            db.Exec("ALTER TABLE attempts DROP COLUMN sub_status");
             db.SetState("schema_version", "1");
         }
 
         using var upgraded = GuardDb.Open(_path);
         Assert.Equal(GuardDb.SchemaVersion, upgraded.CurrentSchemaVersion);
         Assert.Equal(0, upgraded.ScalarLong("SELECT COUNT(*) FROM api_tokens"));
+        Assert.True(upgraded.ColumnExists("attempts", "sub_status"));
+    }
+
+    [Fact]
+    public void RepeatedMigration_IsIdempotent()
+    {
+        // Прерванная миграция: колонка уже добавлена, а версия не записана.
+        using (var db = GuardDb.Open(_path)) db.SetState("schema_version", "2");
+        using var again = GuardDb.Open(_path);
+        Assert.Equal(GuardDb.SchemaVersion, again.CurrentSchemaVersion);
     }
 }
 

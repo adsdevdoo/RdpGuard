@@ -21,16 +21,17 @@ public class BanPolicyTests
     [Fact]
     public void BelowThreshold_DoesNotBan()
     {
-        var d = Policy().Evaluate(Ctx(failures: 9));
+        var d = Policy().Evaluate(Ctx(failures: 4));
         Assert.False(d.Ban);
-        Assert.Equal("below threshold", d.Reason);
+        Assert.Equal("below thresholds", d.Reason);
     }
 
     [Fact]
     public void AtThreshold_BansFirstOffenseForBaseDuration()
     {
-        var d = Policy().Evaluate(Ctx(failures: 10));
+        var d = Policy().Evaluate(Ctx(failures: 5));
         Assert.True(d.Ban);
+        Assert.Equal(BanRules.Fast, d.Rule);
         Assert.Equal(1, d.OffenseNo);
         Assert.Equal(TimeSpan.FromDays(1), d.Duration);
     }

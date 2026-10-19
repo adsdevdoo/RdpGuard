@@ -74,6 +74,14 @@ public static class PrometheusWriter
             Gauge(sb, "rdpguard_tracked_ips", "Addresses known to the database.", summary.TrackedIps);
             Gauge(sb, "rdpguard_whitelist_entries", "Whitelist entries added with 'allow'.", summary.WhitelistEntries);
             Gauge(sb, "rdpguard_bans_recorded", "All bans in the database (history).", summary.TotalBans);
+
+            // Только существующие учётки (неверный пароль, а не «нет такого пользователя») — рядов немного.
+            Header(sb, "rdpguard_account_wrong_passwords_last_24h", "Wrong passwords for an existing account during the last 24 hours, all addresses.", "gauge");
+            foreach (var a in summary.AccountAttacks)
+                Sample(sb, "rdpguard_account_wrong_passwords_last_24h", a.WrongPasswords, ("account", a.User));
+            Header(sb, "rdpguard_account_wrong_password_ips_last_24h", "Distinct addresses that tried wrong passwords for the account during the last 24 hours.", "gauge");
+            foreach (var a in summary.AccountAttacks)
+                Sample(sb, "rdpguard_account_wrong_password_ips_last_24h", a.Ips, ("account", a.User));
         }
 
         Gauge(sb, "rdpguard_database_up", "1 if the database could be read for this scrape.", summary is null ? 0 : 1);

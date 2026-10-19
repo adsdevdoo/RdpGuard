@@ -131,6 +131,7 @@ curl -H "Authorization: Bearer rg_..." http://win-server-01:9645/metrics
   "totalBans": 22,
   "activeBansByOffense": { "1": 22, "2": 0, "3": 0, "4": 0, "5+": 0, "permanent": 0 },
   "lastFailureUtc": "2026-10-19T15:41:49.840Z",
+  "accountAttacks": [ { "user": "Администратор", "wrongPasswords": 19, "ips": 1 } ],
   "firewallRules": 1,
   "firewallAddresses": 22,
   "lastFirewallSyncUtc": "2026-10-19T15:41:40.410Z",
@@ -211,6 +212,7 @@ curl -H "Authorization: Bearer rg_..." http://win-server-01:9645/metrics
 | `rdpguard_failed_logons_duplicate_total` | `event_id` | Отброшено как дубли 4625/140 |
 | `rdpguard_external_logons_total` | `whitelisted` (`true`, `false`) | Успешные входы с внешних адресов |
 | `rdpguard_bans_total` | `offense` (`1`…`4`, `5+`) | Автоматические баны (ручные из CLI не входят) |
+| `rdpguard_ban_triggers_total` | `rule` (`wrong_password`, `no_such_user`, `periodic`, `fast`, `slow`) | Автоматические баны по сработавшему правилу |
 | `rdpguard_unbans_total` | `reason` (`expired`, `successful_logon`, `whitelisted`) | Снятые службой баны |
 | `rdpguard_errors_total` | `stage` (`event`, `batch`, `maintenance`, `firewall`) | Ошибки обработки |
 | `rdpguard_firewall_syncs_total` | `result` (`ok`, `error`) | Сверки брандмауэра |
@@ -227,6 +229,8 @@ curl -H "Authorization: Bearer rg_..." http://win-server-01:9645/metrics
 | `rdpguard_external_logons_last_24h` | Успешные входы извне за сутки |
 | `rdpguard_tracked_ips` | Адресов в БД |
 | `rdpguard_whitelist_entries` | Записей `allow` |
+| `rdpguard_account_wrong_passwords_last_24h{account}` | Неверных паролей к существующей учётке за сутки, со всех адресов (до 20 учёток) |
+| `rdpguard_account_wrong_password_ips_last_24h{account}` | Сколько разных адресов подбирали пароль к учётке за сутки |
 | `rdpguard_bans_recorded` | Всего банов в истории |
 | `rdpguard_database_up` | 1 — БД прочитана для этого ответа |
 

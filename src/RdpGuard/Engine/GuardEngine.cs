@@ -32,6 +32,7 @@ public sealed class GuardEngine
 
     private readonly Dictionary<string, long> _bookmarks = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTime> _logonWarnings = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, DateTime> _accountAlerts = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<Action> _afterCommit = new();
     private string? _adminRevision;
     private DateTime _lastPrune = DateTime.MinValue;
@@ -81,9 +82,9 @@ public sealed class GuardEngine
 
         int active = _repo.GetActiveBannedIps(now).Count;
         _audit.LogInformation(LogEvents.Started,
-            "RdpGuard started. Mode: {Mode}. Active bans: {Active}. Threshold: {Max} failures / {Window}. Database: {Db}",
+            "RdpGuard started. Mode: {Mode}. Active bans: {Active}. Ban rules: {Rules}. Database: {Db}",
             _options.DryRun ? "DRY RUN (firewall is not modified)" : "enforcing", active,
-            _options.Policy.MaxFailures, BanPolicy.FormatSpan(_options.Policy.FailureWindow), _repo.Db.Path);
+            BanPolicy.DescribeRules(_options.Policy), _repo.Db.Path);
 
         _firewallDirty = true;
         SyncFirewall();
@@ -213,33 +214,45 @@ public sealed class GuardEngine
             _metrics.SawEvent(GuardMetrics.ChannelLabel(e.Channel), e.TimeUtc);
         });
 
-        var activeBan = _repo.GetActiveBan(e.Ip, now);
+        // Белый список и уже забаненные: попытку записали, считать окна незачем.
+        if (whitelisted || _repo.GetActiveBan(e.Ip, now) is not null) return;
+        if (_policy.IsTrustedBySuccess(row?.LastSuccessUtc, e.TimeUtc)) return;
+
+        var p = _options.Policy;
         var lastBanEnd = _repo.GetLastBanEnd(e.Ip, now);
 
-        // Окно не заходит раньше конца предыдущего бана: иначе после ручного разбана
+        // Окна не заходят раньше конца предыдущего бана: иначе после разбана
         // старые попытки сразу вызвали бы новый бан.
-        var since = e.TimeUtc - _options.Policy.FailureWindow;
-        if (lastBanEnd is { } end && end > since) since = end;
-        int failures = _repo.CountFailures(e.Ip, since, e.TimeUtc);
+        DateTime Since(TimeSpan window)
+        {
+            var since = e.TimeUtc - window;
+            return lastBanEnd is { } end && end > since ? end : since;
+        }
+
+        var stats = _repo.GetFailureStats(e.Ip, e.TimeUtc, Since(p.FailureWindow), Since(p.SlowFailureWindow),
+            Since(p.NoSuchUserWindow), Since(p.WrongPasswordWindow));
+        var recent = p.PeriodicMinAttempts >= 3
+            ? _repo.GetRecentFailureTimes(e.Ip, Since(p.PeriodicWindow), e.TimeUtc, p.PeriodicMinAttempts)
+            : null;
 
         DateTime? lastActivity = Max(row?.LastSeenUtc, lastBanEnd);
         var decision = _policy.Evaluate(new FailureContext(
-            e.TimeUtc, failures, row?.Offenses ?? 0, lastActivity, row?.LastSuccessUtc, activeBan is not null, whitelisted));
+            e.TimeUtc, stats.Fast, row?.Offenses ?? 0, lastActivity, row?.LastSuccessUtc, HasActiveBan: false, IsWhitelisted: false,
+            stats.Slow, stats.NoSuchUser, stats.WrongPassword, recent));
 
-        if (!decision.Ban)
-        {
-            if (failures >= _options.Policy.MaxFailures && activeBan is null)
-                _log.LogDebug("Not banning {Ip}: {Reason}", e.Ip, decision.Reason);
-            return;
-        }
+        if (!decision.Ban) return;
 
         DateTime? expires = decision.Duration is { } d ? now + d : null;
-        _repo.InsertBan(e.Ip, now, expires, decision.OffenseNo, decision.Reason, failures);
+        _repo.InsertBan(e.Ip, now, expires, decision.OffenseNo, decision.Reason, decision.Count);
         _repo.SetOffenses(e.Ip, decision.OffenseNo, now);
         _firewallDirty = true;
 
         string mode = Mode;
-        _afterCommit.Add(() => _metrics.Bans.Inc(GuardMetrics.OffenseBucket(decision.OffenseNo)));
+        _afterCommit.Add(() =>
+        {
+            _metrics.Bans.Inc(GuardMetrics.OffenseBucket(decision.OffenseNo));
+            _metrics.BanTriggers.Inc(decision.Rule ?? "unknown");
+        });
         _afterCommit.Add(() => _audit.LogWarning(LogEvents.Ban,
             "{Mode}Banned {Ip}: offense #{Offense}, duration {Duration}, until {Expires}. {Reason}. Last user: {User}",
             mode, e.Ip, decision.OffenseNo, BanPolicy.FormatSpan(decision.Duration),
@@ -308,9 +321,30 @@ public sealed class GuardEngine
                 _logonWarnings.Remove(key);
         }
 
+        CheckAccountAttacks(now);
         _dedup?.Purge(now);
         // Периодическая сверка: восстанавливает правила, если их удалили или изменили вручную.
         _firewallDirty = true;
+    }
+
+    /// <summary>
+    /// Распределённый подбор: одну учётку атакуют понемногу со многих адресов, и бан по IP не срабатывает.
+    /// Не банит, а предупреждает (событие 1009) не чаще раза в сутки на учётку.
+    /// </summary>
+    private void CheckAccountAttacks(DateTime now)
+    {
+        var p = _options.Policy;
+        if (p.AccountAlertWrongPasswords <= 0) return;
+        foreach (var a in _repo.GetWrongPasswordsByAccount(now.AddDays(-1), 50))
+        {
+            if (a.WrongPasswords < p.AccountAlertWrongPasswords || a.Ips < p.AccountAlertMinIps) continue;
+            if (_accountAlerts.TryGetValue(a.User, out var last) && now - last < TimeSpan.FromDays(1)) continue;
+            _accountAlerts[a.User] = now;
+            _afterCommit.Add(() => _audit.LogWarning(LogEvents.AccountAttack,
+                "Account {User} received {Count} wrong passwords from {Ips} different addresses within 24h: " +
+                "possible distributed password guessing. Make sure the password is strong; consider renaming the account " +
+                "or allowing RDP only via VPN.", a.User, a.WrongPasswords, a.Ips));
+        }
     }
 
     private void ExpireBans(DateTime now)

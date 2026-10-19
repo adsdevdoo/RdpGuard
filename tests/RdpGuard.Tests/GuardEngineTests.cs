@@ -22,6 +22,10 @@ public sealed class GuardEngineTests : IDisposable
     public GuardEngineTests()
     {
         _options = new GuardOptions { DryRun = false, DataDirectory = _dir };
+        // Эти тесты проверяют механику (окно, эскалация, БД, брандмауэр) на классическом правиле
+        // «10 за 10 минут»; новые правила проверяются в PolicyRulesEngineTests.
+        _options.Policy.MaxFailures = 10;
+        _options.Policy.PeriodicMinAttempts = 0;
         _db = GuardDb.Open(_options.DatabasePath);
         _engine = new GuardEngine(_options, _db, _firewall, 3389, _time, NullLoggerFactory.Instance);
         _engine.Initialize();
