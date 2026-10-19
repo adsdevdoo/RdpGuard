@@ -41,13 +41,24 @@ public static class FirewallAddress
 {
     /// <summary>
     /// Брандмауэр возвращает адреса как "1.2.3.4/255.255.255.255" или "2001:db8::1/128".
-    /// Приводит одиночный адрес к виду "1.2.3.4"; для подсетей, диапазонов и "*" возвращает false.
+    /// Одиночный IPv6 брандмауэр может вернуть диапазоном "2001:db8::1-2001:db8::1".
+    /// Приводит одиночный адрес к виду "1.2.3.4"; для подсетей, настоящих диапазонов и "*" возвращает false.
     /// </summary>
     public static bool TryNormalizeHost(string token, out string ip)
     {
         ip = "";
         var t = token.Trim();
-        if (t.Length == 0 || t == "*" || t.Contains('-')) return false;
+        if (t.Length == 0 || t == "*") return false;
+
+        int dash = t.IndexOf('-');
+        if (dash >= 0)
+        {
+            var from = IpUtil.Normalize(t[..dash]);
+            var to = IpUtil.Normalize(t[(dash + 1)..]);
+            if (from is null || !string.Equals(from, to, StringComparison.OrdinalIgnoreCase)) return false;
+            ip = from;
+            return true;
+        }
 
         int slash = t.IndexOf('/');
         if (slash < 0)

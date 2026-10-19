@@ -96,6 +96,8 @@ public class WhitelistTests
     [InlineData("2001:db8::1/128", "2001:db8::1")]
     [InlineData("1.2.3.4", "1.2.3.4")]
     [InlineData("1.2.3.0/255.255.255.0", null)]
+    [InlineData("2001:db8::1-2001:db8::1", "2001:db8::1")] // так брандмауэр возвращает одиночный IPv6
+    [InlineData("1.2.3.4-1.2.3.4", "1.2.3.4")]
     [InlineData("1.2.3.4-1.2.3.9", null)]
     [InlineData("*", null)]
     public void FirewallAddressNormalization(string token, string? expected)

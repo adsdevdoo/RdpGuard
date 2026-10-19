@@ -61,7 +61,8 @@ public sealed class FakeFirewall : IFirewall
             .Select(a => FirewallAddress.TryNormalizeHost(a, out var ip) ? ip : a)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-    private static string AsFirewallReturns(string ip) => ip.Contains(':') ? ip + "/128" : ip + "/255.255.255.255";
+    // Так адреса возвращает настоящий брандмауэр (проверено системными тестами).
+    private static string AsFirewallReturns(string ip) => ip.Contains(':') ? ip + "-" + ip : ip + "/255.255.255.255";
 }
 
 /// <summary>Источник событий для интеграционных тестов: отдаёт заранее заданный поток и закрывает канал.</summary>
