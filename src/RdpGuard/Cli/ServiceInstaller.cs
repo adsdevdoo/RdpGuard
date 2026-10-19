@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.Versioning;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.ServiceProcess;
 using System.Text;
 using RdpGuard.Engine;
@@ -65,6 +67,46 @@ public static class ServiceInstaller
     }
 
     public static void Delete() => Sc("delete", Name);
+
+    /// <summary>
+    /// Оставляет доступ к папке данных только SYSTEM и Administrators: в БД адреса и имена учётных записей.
+    /// Применяется только к папке, в имени которой есть "RdpGuard", чтобы случайно указанный в конфиге
+    /// общий каталог (например, C:\Data) не потерял свои права.
+    /// </summary>
+    /// <returns>false, если папка не похожа на выделенную и права не менялись.</returns>
+    public static bool SecureDataDirectory(string directory)
+    {
+        var info = new DirectoryInfo(directory);
+        if (info.Parent is null || !info.Name.Contains("RdpGuard", StringComparison.OrdinalIgnoreCase)) return false;
+
+        var security = new DirectorySecurity();
+        security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+        const InheritanceFlags inherit = InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit;
+        foreach (var sid in new[] { WellKnownSidType.LocalSystemSid, WellKnownSidType.BuiltinAdministratorsSid })
+        {
+            security.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(sid, null),
+                FileSystemRights.FullControl, inherit, PropagationFlags.None, AccessControlType.Allow));
+        }
+        info.SetAccessControl(security);
+
+        // Файлы, созданные до этого с явными правами, приводим к наследуемым.
+        foreach (var entry in info.EnumerateFileSystemInfos("*", SearchOption.AllDirectories))
+        {
+            if (entry is FileInfo file)
+            {
+                var fs = new FileSecurity();
+                fs.SetAccessRuleProtection(false, false);
+                file.SetAccessControl(fs);
+            }
+            else if (entry is DirectoryInfo dir)
+            {
+                var ds = new DirectorySecurity();
+                ds.SetAccessRuleProtection(false, false);
+                dir.SetAccessControl(ds);
+            }
+        }
+        return true;
+    }
 
     public static void EnsureEventSource()
     {

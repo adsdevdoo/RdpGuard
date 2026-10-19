@@ -28,6 +28,7 @@ public sealed class GuardEngine
     private readonly BanPolicy _policy;
     private readonly IpWhitelist _whitelist;
     private readonly CrossSourceDeduplicator? _dedup;
+    private readonly GuardMetrics _metrics;
 
     private readonly Dictionary<string, long> _bookmarks = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTime> _logonWarnings = new(StringComparer.OrdinalIgnoreCase);
@@ -36,9 +37,11 @@ public sealed class GuardEngine
     private DateTime _lastPrune = DateTime.MinValue;
     private bool _firewallDirty = true;
 
-    public GuardEngine(GuardOptions options, GuardDb db, IFirewall firewall, int rdpPort, TimeProvider time, ILoggerFactory loggers)
+    public GuardEngine(GuardOptions options, GuardDb db, IFirewall firewall, int rdpPort, TimeProvider time,
+        ILoggerFactory loggers, GuardMetrics? metrics = null)
     {
         _options = options;
+        _metrics = metrics ?? new GuardMetrics(time);
         _repo = new Repository(db);
         _time = time;
         _log = loggers.CreateLogger("RdpGuard.Engine");
@@ -54,6 +57,7 @@ public sealed class GuardEngine
     private string Mode => _options.DryRun ? "[DryRun] " : "";
 
     public Repository Repository => _repo;
+    public GuardMetrics Metrics => _metrics;
 
     /// <summary>Подготовка при старте: белый список, истёкшие баны, сверка брандмауэра с БД.</summary>
     public void Initialize()
@@ -100,6 +104,7 @@ public sealed class GuardEngine
             }
             catch (Exception ex)
             {
+                _metrics.Errors.Inc("batch");
                 _log.LogError(LogEvents.Error, ex, "Failed to process a batch of {Count} item(s)", batch.Count);
             }
         }
@@ -110,6 +115,7 @@ public sealed class GuardEngine
         var now = Now;
         var ticks = TickKind.None;
         var pendingBookmarks = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        var readPerChannel = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         _afterCommit.Clear();
 
         using (var tx = _repo.Db.Begin())
@@ -121,6 +127,7 @@ public sealed class GuardEngine
                     switch (item)
                     {
                         case RecordWork r:
+                            readPerChannel[r.Channel] = readPerChannel.GetValueOrDefault(r.Channel) + 1;
                             if (r.RecordId > 0)
                             {
                                 long prev = pendingBookmarks.TryGetValue(r.Channel, out var p) ? p : GetBookmark(r.Channel) ?? 0;
@@ -136,6 +143,7 @@ public sealed class GuardEngine
                 catch (Exception ex)
                 {
                     // Ошибка одного события не должна останавливать обработку остальных.
+                    _metrics.Errors.Inc("event");
                     _log.LogError(LogEvents.Error, ex, "Failed to process {Item}", item);
                 }
             }
@@ -147,6 +155,7 @@ public sealed class GuardEngine
             }
             catch (Exception ex)
             {
+                _metrics.Errors.Inc("maintenance");
                 _log.LogError(LogEvents.Error, ex, "Maintenance failed");
             }
 
@@ -155,6 +164,7 @@ public sealed class GuardEngine
         }
 
         foreach (var (channel, recordId) in pendingBookmarks) _bookmarks[channel] = recordId;
+        foreach (var (channel, count) in readPerChannel) _metrics.EventsRead.Inc(GuardMetrics.ChannelLabel(channel), count);
         FlushAfterCommit();
 
         if (_firewallDirty) SyncFirewall();
@@ -187,6 +197,7 @@ public sealed class GuardEngine
         if (_dedup?.IsDuplicate(e, now) == true)
         {
             _log.LogDebug("Skipping duplicate failure from {Ip} ({Channel} #{RecordId})", e.Ip, e.Channel, e.RecordId);
+            _afterCommit.Add(() => _metrics.DuplicateFailures.Inc(e.EventId.ToString(System.Globalization.CultureInfo.InvariantCulture)));
             return;
         }
 
@@ -196,6 +207,11 @@ public sealed class GuardEngine
 
         _repo.InsertAttempt(e);
         _repo.TouchIpFailure(e.Ip, e.TimeUtc, whitelisted);
+        _afterCommit.Add(() =>
+        {
+            _metrics.FailedLogons.Inc(e.EventId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            _metrics.SawEvent(GuardMetrics.ChannelLabel(e.Channel), e.TimeUtc);
+        });
 
         var activeBan = _repo.GetActiveBan(e.Ip, now);
         var lastBanEnd = _repo.GetLastBanEnd(e.Ip, now);
@@ -223,6 +239,7 @@ public sealed class GuardEngine
         _firewallDirty = true;
 
         string mode = Mode;
+        _afterCommit.Add(() => _metrics.Bans.Inc(GuardMetrics.OffenseBucket(decision.OffenseNo)));
         _afterCommit.Add(() => _audit.LogWarning(LogEvents.Ban,
             "{Mode}Banned {Ip}: offense #{Offense}, duration {Duration}, until {Expires}. {Reason}. Last user: {User}",
             mode, e.Ip, decision.OffenseNo, BanPolicy.FormatSpan(decision.Duration),
@@ -238,6 +255,11 @@ public sealed class GuardEngine
         bool whitelisted = _whitelist.IsWhitelisted(address);
         _repo.InsertSuccess(e);
         _repo.TouchIpSuccess(e.Ip, e.TimeUtc, whitelisted);
+        _afterCommit.Add(() =>
+        {
+            _metrics.ExternalLogons.Inc(whitelisted ? "true" : "false");
+            _metrics.SawEvent(GuardMetrics.ChannelLabel(e.Channel), e.TimeUtc);
+        });
 
         string key = e.Ip + "|" + e.UserName;
         if (!_logonWarnings.TryGetValue(key, out var last) || now - last >= LogonWarningThrottle)
@@ -253,6 +275,7 @@ public sealed class GuardEngine
         {
             _repo.Unban(ban.Id, now, "successful logon");
             _firewallDirty = true;
+            _afterCommit.Add(() => _metrics.Unbans.Inc("successful_logon"));
             string mode = Mode;
             _afterCommit.Add(() => _audit.LogWarning(LogEvents.Unban,
                 "{Mode}Unbanned {Ip}: successful logon by user {User}", mode, e.Ip, e.UserName ?? "-"));
@@ -295,6 +318,7 @@ public sealed class GuardEngine
         var expired = _repo.ExpireBans(now);
         if (expired.Count == 0) return;
         _firewallDirty = true;
+        _afterCommit.Add(() => _metrics.Unbans.Inc("expired", expired.Count));
         string mode = Mode;
         foreach (var b in expired)
         {
@@ -312,6 +336,7 @@ public sealed class GuardEngine
             if (!_whitelist.IsWhitelisted(ban.Ip)) continue;
             _repo.Unban(ban.Id, now, "whitelisted");
             _firewallDirty = true;
+            _afterCommit.Add(() => _metrics.Unbans.Inc("whitelisted"));
             string mode = Mode;
             _afterCommit.Add(() => _audit.LogWarning(LogEvents.Unban, "{Mode}Unbanned {Ip}: address is whitelisted", mode, ban.Ip));
         }
@@ -342,12 +367,15 @@ public sealed class GuardEngine
             var ips = _repo.GetActiveBannedIps(Now).Where(ip => !_whitelist.IsWhitelisted(ip)).ToList();
             var result = _firewall.Sync(ips);
             _firewallDirty = false;
+            _metrics.FirewallSynced(result, Now);
             if (result.HasChanges)
                 _log.LogInformation(LogEvents.FirewallChanged, "Firewall synchronized: {Result}", result);
         }
         catch (Exception ex)
         {
             // Флаг остаётся — повторим на следующем тике.
+            _metrics.FirewallSyncs.Inc("error");
+            _metrics.Errors.Inc("firewall");
             _log.LogError(LogEvents.FirewallError, ex, "Firewall synchronization failed; will retry");
         }
     }

@@ -5,6 +5,7 @@ using System.Security.Principal;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.EventLog;
+using RdpGuard.Api;
 using RdpGuard.Configuration;
 using RdpGuard.Data;
 using RdpGuard.Engine;
@@ -46,6 +47,11 @@ public static class CliApp
           disallow <ip|cidr>              Remove a whitelist entry added with 'allow'.
           whitelist                       Show all whitelist entries.
 
+        Statistics API (Grafana / Prometheus):
+          api-token create <name>     Create an API token (shown once; only its hash is stored).
+          api-token list              List tokens.
+          api-token revoke <name>     Revoke a token immediately.
+
         Other:
           export --csv [--out DIR]    Write ips.csv and bans.csv (default: current directory).
           sync                        Reconcile firewall rules with the database now.
@@ -79,6 +85,7 @@ public static class CliApp
                 "whitelist" => Whitelist(a),
                 "export" => Export(a),
                 "sync" => Sync(a),
+                "api-token" => ApiToken(a),
                 _ => throw new CliException($"Unknown command '{args[0]}'. Run 'RdpGuard help'."),
             };
         }
@@ -172,7 +179,11 @@ public static class CliApp
     {
         if (!b.IsActive(now)) return "";
         if (b.ExpiresAtUtc is not { } e) return "forever";
-        var left = e - now;
+        return FormatLeft(e - now);
+    }
+
+    private static string FormatLeft(TimeSpan left)
+    {
         return left.TotalDays >= 1 ? $"{(int)left.TotalDays}d {left.Hours}h"
             : left.TotalHours >= 1 ? $"{(int)left.TotalHours}h {left.Minutes}m"
             : $"{Math.Max(0, (int)left.TotalMinutes)}m";
@@ -192,6 +203,9 @@ public static class CliApp
         Directory.CreateDirectory(options.ResolvedDataDirectory);
         using (var db = GuardDb.Open(options.DatabasePath))
             Console.WriteLine($"Database:   {db.Path} (schema v{db.CurrentSchemaVersion})");
+        Console.WriteLine(ServiceInstaller.SecureDataDirectory(options.ResolvedDataDirectory)
+            ? "Access:     data folder restricted to SYSTEM and Administrators"
+            : $"Access:     folder name does not contain 'RdpGuard'; permissions of {options.ResolvedDataDirectory} left unchanged");
 
         ServiceInstaller.EnsureEventSource();
         Console.WriteLine("Event log:  source 'RdpGuard' in the Application log");
@@ -346,53 +360,93 @@ public static class CliApp
         using var ctx = new Context();
         double hours = a.GetDouble("hours") ?? 24;
         int limit = a.GetInt("limit", 20);
-        var since = DbTime.ToDb(ctx.Now.AddHours(-hours));
-        var db = ctx.Db;
         var now = ctx.Now;
+        var since = now.AddHours(-hours);
+        var stats = new StatsQueries(ctx.Db);
+        string h = hours.ToString(CultureInfo.InvariantCulture);
 
-        var top = db.Query("""
-                           SELECT a.ip, COUNT(*) AS n, COUNT(DISTINCT a.user_name), MIN(a.ts_utc), MAX(a.ts_utc), COALESCE(i.offenses, 0)
-                           FROM attempts a LEFT JOIN ips i ON i.ip = a.ip
-                           WHERE a.ts_utc >= $s
-                           GROUP BY a.ip ORDER BY n DESC LIMIT $l
-                           """,
-            r => (Ip: r.GetString(0), N: r.GetInt64(1), Users: r.GetInt64(2), First: DbTime.FromDb(r.GetString(3)),
-                Last: DbTime.FromDb(r.GetString(4)), Offenses: r.GetInt32(5)),
-            ("$s", since), ("$l", limit));
-
+        var top = stats.TopIps(since, limit, now);
         if (top.Count == 0)
         {
-            Console.WriteLine($"No failed logons in the last {hours.ToString(CultureInfo.InvariantCulture)} hour(s).");
+            Console.WriteLine($"No failed logons in the last {h} hour(s).");
             return 0;
         }
 
-        Console.WriteLine($"Top IPs, last {hours.ToString(CultureInfo.InvariantCulture)} hour(s):");
+        Console.WriteLine($"Top IPs, last {h} hour(s):");
         var t = new Table("IP", "Attempts", "Users", "First", "Last", "Offenses", "Banned", "Most tried users");
         foreach (var row in top)
         {
-            var users = db.Query("""
-                                 SELECT COALESCE(user_name, '?'), COUNT(*) AS n FROM attempts
-                                 WHERE ip = $ip AND ts_utc >= $s GROUP BY user_name ORDER BY n DESC LIMIT 3
-                                 """, r => $"{r.GetString(0)}({r.GetInt64(1)})", ("$ip", row.Ip), ("$s", since));
-            var ban = ctx.Repo.GetActiveBan(row.Ip, now);
-            t.Add(row.Ip, row.N, row.Users, Local(row.First), Local(row.Last), row.Offenses,
-                ban is null ? "" : ban.ExpiresAtUtc is null ? "forever" : Remaining(ban, now), string.Join(", ", users));
+            string banned = !row.Banned ? "" : row.BanPermanent ? "forever"
+                : row.BanExpiresUtc is { } e ? FormatLeft(e - now) : "";
+            t.Add(row.Ip, row.Attempts, row.Users, Local(row.FirstUtc), Local(row.LastUtc), row.Offenses, banned,
+                string.Join(", ", row.TopUsers.Select(u => $"{u.User}({u.Attempts})")));
         }
         t.Print();
 
         Console.WriteLine();
         Console.WriteLine("Most targeted user names:");
         var u = new Table("User", "Attempts", "IPs");
-        foreach (var row in db.Query("""
-                                     SELECT COALESCE(user_name, '?'), COUNT(*) AS n, COUNT(DISTINCT ip) FROM attempts
-                                     WHERE ts_utc >= $s GROUP BY user_name ORDER BY n DESC LIMIT $l
-                                     """, r => (User: r.GetString(0), N: r.GetInt64(1), Ips: r.GetInt64(2)),
-                     ("$s", since), ("$l", limit)))
-        {
-            u.Add(row.User, row.N, row.Ips);
-        }
+        foreach (var row in stats.TopUsers(since, limit)) u.Add(row.User, row.Attempts, row.Ips);
         u.Print();
         return 0;
+    }
+
+    private static int ApiToken(CliArgs a)
+    {
+        a.EnsureKnown();
+        var action = a.RequirePositional(0, "create | list | revoke").ToLowerInvariant();
+        using var ctx = new Context();
+        switch (action)
+        {
+            case "create":
+            {
+                var name = a.RequirePositional(1, "<name>");
+                string token;
+                try
+                {
+                    token = ApiTokens.Create(ctx.Repo, name, ctx.Now);
+                }
+                catch (ArgumentException ex)
+                {
+                    throw new CliException(ex.Message);
+                }
+                Console.WriteLine($"Token '{name}' created. Copy it now, it is not stored and will not be shown again:");
+                Console.WriteLine();
+                Console.WriteLine("  " + token);
+                Console.WriteLine();
+                Console.WriteLine("Use it as the HTTP header:  Authorization: Bearer <token>");
+                if (!ctx.Options.Api.Enabled) Console.WriteLine("Note: the API is disabled (RdpGuard:Api:Enabled = false).");
+                AuditLogger().LogWarning(LogEvents.ApiTokenChanged, "API token {Name} created by {User}", name, Environment.UserName);
+                return 0;
+            }
+            case "list":
+            {
+                var t = new Table("Name", "Token", "Created", "State");
+                foreach (var row in ApiTokens.List(ctx.Db))
+                    t.Add(row.Name, row.Prefix, Local(row.CreatedUtc), row.RevokedUtc is { } r ? $"revoked {Local(r)}" : "active");
+                if (t.Count == 0)
+                {
+                    Console.WriteLine("No API tokens. Create one with: RdpGuard api-token create <name>");
+                    return 0;
+                }
+                t.Print();
+                return 0;
+            }
+            case "revoke":
+            {
+                var name = a.RequirePositional(1, "<name>");
+                if (!ApiTokens.Revoke(ctx.Db, name, ctx.Now))
+                {
+                    Console.WriteLine($"No active token named '{name}'.");
+                    return 1;
+                }
+                Console.WriteLine($"Token '{name}' revoked; it is rejected starting with the next request.");
+                AuditLogger().LogWarning(LogEvents.ApiTokenChanged, "API token {Name} revoked by {User}", name, Environment.UserName);
+                return 0;
+            }
+            default:
+                throw new CliException("Usage: api-token create <name> | api-token list | api-token revoke <name>");
+        }
     }
 
     private static int Ban(CliArgs a)

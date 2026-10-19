@@ -24,7 +24,7 @@ public static class DbTime
 /// <summary>Соединение с SQLite (WAL) и миграции схемы.</summary>
 public sealed class GuardDb : IDisposable
 {
-    public const int SchemaVersion = 1;
+    public const int SchemaVersion = 2;
 
     private static readonly string[][] Migrations =
     {
@@ -86,6 +86,19 @@ public sealed class GuardDb : IDisposable
                 note       TEXT NULL)
             """,
         },
+        // v2: токены HTTP API (хранится только SHA-256)
+        new[]
+        {
+            """
+            CREATE TABLE IF NOT EXISTS api_tokens(
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                name         TEXT NOT NULL UNIQUE,
+                token_hash   TEXT NOT NULL UNIQUE,
+                prefix       TEXT NOT NULL,
+                created_utc  TEXT NOT NULL,
+                revoked_utc  TEXT NULL)
+            """,
+        },
     };
 
     private readonly SqliteConnection _connection;
@@ -119,6 +132,31 @@ public sealed class GuardDb : IDisposable
             db.Exec("PRAGMA synchronous=NORMAL");
             db.Exec("PRAGMA busy_timeout=10000");
             db.Migrate();
+            return db;
+        }
+        catch
+        {
+            db.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>Подключение только для чтения (API статистики): без миграций, не мешает писателю.</summary>
+    public static GuardDb OpenReadOnly(string path)
+    {
+        if (!File.Exists(path)) throw new FileNotFoundException("Database does not exist yet", path);
+        var csb = new SqliteConnectionStringBuilder
+        {
+            DataSource = path,
+            Mode = SqliteOpenMode.ReadOnly,
+            Pooling = false,
+            DefaultTimeout = 10,
+        };
+        var db = new GuardDb(path, new SqliteConnection(csb.ToString()));
+        try
+        {
+            db._connection.Open();
+            db.Exec("PRAGMA busy_timeout=5000");
             return db;
         }
         catch

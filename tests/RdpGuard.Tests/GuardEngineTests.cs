@@ -86,6 +86,12 @@ public sealed class GuardEngineTests : IDisposable
         Assert.Equal(12, ip.TotalFailures);
         Assert.Equal(1, ip.Offenses);
         Assert.True(Repo.GetIp("10.0.0.5")!.Whitelisted);
+
+        var m = _engine.Metrics;
+        Assert.Equal(87, m.FailedLogons.Get("4625"));
+        Assert.Equal(87, m.EventsRead.Get("Security"));
+        Assert.Equal(2, m.Bans.Get("1"));
+        Assert.Equal(2, m.LastFirewallSync!.Addresses);
     }
 
     [Fact]

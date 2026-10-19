@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.EventLog;
+using RdpGuard.Api;
 using RdpGuard.Configuration;
 using RdpGuard.Engine;
 using RdpGuard.Events;
@@ -55,9 +56,11 @@ public static class ServiceHost
 
         builder.Services.AddSingleton(options);
         builder.Services.AddSingleton(TimeProvider.System);
+        builder.Services.AddSingleton<GuardMetrics>();
         builder.Services.AddSingleton<IFirewall, ComFirewall>();
         builder.Services.AddSingleton<IAuthEventSource, EventLogAuthSource>();
         builder.Services.AddHostedService<GuardService>();
+        builder.Services.AddHostedService<StatsApiServer>();
 
         using var host = builder.Build();
         host.Run();

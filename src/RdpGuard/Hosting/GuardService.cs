@@ -22,11 +22,13 @@ public sealed class GuardService : BackgroundService
     private readonly TimeProvider _time;
     private readonly ILoggerFactory _loggers;
     private readonly IHostApplicationLifetime _lifetime;
+    private readonly GuardMetrics _metrics;
     private readonly ILogger _log;
 
     public GuardService(GuardOptions options, IFirewall firewall, IAuthEventSource source, TimeProvider time,
-        ILoggerFactory loggers, IHostApplicationLifetime lifetime)
+        ILoggerFactory loggers, IHostApplicationLifetime lifetime, GuardMetrics metrics)
     {
+        _metrics = metrics;
         _options = options;
         _firewall = firewall;
         _source = source;
@@ -45,7 +47,7 @@ public sealed class GuardService : BackgroundService
         try
         {
             db = GuardDb.Open(_options.DatabasePath);
-            engine = new GuardEngine(_options, db, _firewall, RdpPortResolver.Resolve(_options.Firewall), _time, _loggers);
+            engine = new GuardEngine(_options, db, _firewall, RdpPortResolver.Resolve(_options.Firewall), _time, _loggers, _metrics);
             engine.Initialize();
         }
         catch (Exception ex)
@@ -65,6 +67,8 @@ public sealed class GuardService : BackgroundService
             SingleReader = true,
             SingleWriter = false,
         });
+
+        _metrics.QueueLength = () => channel.Reader.Count;
 
         using var tickerCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
         var ticker = RunTickerAsync(channel.Writer, tickerCts.Token);

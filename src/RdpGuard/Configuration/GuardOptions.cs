@@ -15,6 +15,7 @@ public sealed class GuardOptions
     public FirewallOptions Firewall { get; set; } = new();
     public StorageOptions Storage { get; set; } = new();
     public FileLogOptions FileLog { get; set; } = new();
+    public ApiOptions Api { get; set; } = new();
 
     public string ResolvedDataDirectory =>
         Path.GetFullPath(Environment.ExpandEnvironmentVariables(DataDirectory));
@@ -48,6 +49,20 @@ public sealed class GuardOptions
         foreach (var cidr in Whitelist.Cidrs)
         {
             if (!IpCidr.TryParse(cidr, out _)) errors.Add($"Whitelist:Cidrs: invalid entry '{cidr}'");
+        }
+        if (Api.Enabled)
+        {
+            if (Api.EffectiveUrls.Count == 0) errors.Add("Api:Urls must contain at least one URL");
+            foreach (var url in Api.EffectiveUrls)
+            {
+                if (!url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) && !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+                    || !url.EndsWith('/'))
+                    errors.Add($"Api:Urls: '{url}' must start with http:// or https:// and end with '/'");
+            }
+            foreach (var cidr in Api.AllowedClients)
+            {
+                if (!IpCidr.TryParse(cidr, out _)) errors.Add($"Api:AllowedClients: invalid entry '{cidr}'");
+            }
         }
         try
         {
@@ -109,6 +124,31 @@ public sealed class FirewallOptions
 public sealed class StorageOptions
 {
     public int AttemptRetentionDays { get; set; } = 30;
+}
+
+/// <summary>HTTP API статистики: /metrics (Prometheus) и /api/* (JSON для Grafana Infinity).</summary>
+public sealed class ApiOptions
+{
+    public const string DefaultUrl = "http://127.0.0.1:9645/";
+
+    public bool Enabled { get; set; } = true;
+
+    // Пустые по умолчанию по той же причине, что LogonTypes: биндер дописывает к списку.
+    public List<string> Urls { get; set; } = new();
+
+    /// <summary>Клиенты, которым разрешён доступ. Пусто — только localhost.</summary>
+    public List<string> AllowedClients { get; set; } = new();
+
+    /// <summary>
+    /// Требовать "Authorization: Bearer &lt;token&gt;" (токены — командой "api-token create").
+    /// Выключать имеет смысл только если API слушает localhost и его читает локальный Prometheus.
+    /// </summary>
+    public bool RequireToken { get; set; } = true;
+
+    public IReadOnlyList<string> EffectiveUrls => Urls.Count == 0 ? new[] { DefaultUrl } : Urls;
+
+    public IReadOnlyList<string> EffectiveAllowedClients =>
+        AllowedClients.Count == 0 ? new[] { "127.0.0.0/8", "::1/128" } : AllowedClients;
 }
 
 public sealed class FileLogOptions
