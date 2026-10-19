@@ -1,9 +1,18 @@
 namespace RdpGuard.Events;
 
+/// <summary>Ранее записанное событие, с которым сопоставлено новое.</summary>
+/// <param name="Channel">Канал записанного события.</param>
+/// <param name="AttemptId">Строка attempts, в которую оно записано (если известна).</param>
+public sealed record DuplicateMatch(string Channel, long? AttemptId);
+
 /// <summary>
 /// Одна неудачная RDP-попытка может дать и 4625 (Security), и 140 (RdpCoreTS).
 /// Событие считается дубликатом, если из другого канала уже пришло ещё не сопоставленное
 /// событие с того же IP с разницей во времени не больше окна. Сопоставление 1:1.
+/// <para>
+/// 4625 подробнее (имя, код причины), а 140 часто приходит первым. Поэтому совпадение возвращает
+/// номер уже записанной попытки: движок дополняет её данными из 4625, а не теряет их.
+/// </para>
 /// </summary>
 public sealed class CrossSourceDeduplicator
 {
@@ -18,20 +27,17 @@ public sealed class CrossSourceDeduplicator
         public required string Channel;
         public required DateTime EventTimeUtc;
         public required DateTime SeenAtUtc;
+        public long? AttemptId;
         public bool Matched;
     }
 
     public CrossSourceDeduplicator(TimeSpan window) => _window = window;
 
-    public bool IsDuplicate(AuthEvent e, DateTime nowUtc)
+    /// <summary>Ищет несопоставленное событие из другого канала; найденное помечается сопоставленным.</summary>
+    public DuplicateMatch? Match(AuthEvent e)
     {
-        if (e.Kind != AuthEventKind.Failure || _window <= TimeSpan.Zero) return false;
-
-        if (!_byIp.TryGetValue(e.Ip, out var list))
-        {
-            list = new LinkedList<Entry>();
-            _byIp[e.Ip] = list;
-        }
+        if (e.Kind != AuthEventKind.Failure || _window <= TimeSpan.Zero) return null;
+        if (!_byIp.TryGetValue(e.Ip, out var list)) return null;
 
         for (var node = list.First; node != null; node = node.Next)
         {
@@ -41,12 +47,30 @@ public sealed class CrossSourceDeduplicator
                 && (x.EventTimeUtc - e.TimeUtc).Duration() <= _window)
             {
                 x.Matched = true;
-                return true;
+                return new DuplicateMatch(x.Channel, x.AttemptId);
             }
         }
+        return null;
+    }
 
-        list.AddLast(new Entry { Channel = e.Channel, EventTimeUtc = e.TimeUtc, SeenAtUtc = nowUtc });
+    /// <summary>Запоминает записанное событие, чтобы сопоставить с ним событие из другого канала.</summary>
+    public void Register(AuthEvent e, DateTime nowUtc, long? attemptId)
+    {
+        if (e.Kind != AuthEventKind.Failure || _window <= TimeSpan.Zero) return;
+        if (!_byIp.TryGetValue(e.Ip, out var list))
+        {
+            list = new LinkedList<Entry>();
+            _byIp[e.Ip] = list;
+        }
+        list.AddLast(new Entry { Channel = e.Channel, EventTimeUtc = e.TimeUtc, SeenAtUtc = nowUtc, AttemptId = attemptId });
         if (list.Count > MaxEntriesPerIp) list.RemoveFirst();
+    }
+
+    /// <summary>Совместимость: найти дубль или запомнить событие.</summary>
+    public bool IsDuplicate(AuthEvent e, DateTime nowUtc)
+    {
+        if (Match(e) is not null) return true;
+        Register(e, nowUtc, null);
         return false;
     }
 

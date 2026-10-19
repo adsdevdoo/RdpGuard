@@ -195,18 +195,29 @@ public sealed class GuardEngine
 
     private void HandleFailure(AuthEvent e, DateTime now)
     {
-        if (_dedup?.IsDuplicate(e, now) == true)
+        var address = IpUtil.Parse(e.Ip);
+        bool whitelisted = _whitelist.IsWhitelisted(address);
+
+        if (_dedup?.Match(e) is { } duplicate)
         {
-            _log.LogDebug("Skipping duplicate failure from {Ip} ({Channel} #{RecordId})", e.Ip, e.Channel, e.RecordId);
             _afterCommit.Add(() => _metrics.DuplicateFailures.Inc(e.EventId.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+            // 140 пришло раньше и записано без имени и кода причины: дополняем его данными из 4625
+            // и проверяем правила заново — иначе «несуществующее имя» и «неверный пароль» не увидят попытку.
+            if (e.EventId == EventParser.FailedLogonId && duplicate.AttemptId is long attemptId)
+            {
+                _repo.UpgradeAttempt(attemptId, e);
+                EvaluateFailure(e, now, _repo.GetIp(e.Ip), whitelisted);
+            }
+            else
+            {
+                _log.LogDebug("Skipping duplicate failure from {Ip} ({Channel} #{RecordId})", e.Ip, e.Channel, e.RecordId);
+            }
             return;
         }
 
-        var address = IpUtil.Parse(e.Ip);
-        bool whitelisted = _whitelist.IsWhitelisted(address);
         var row = _repo.GetIp(e.Ip);
-
-        _repo.InsertAttempt(e);
+        long attempt = _repo.InsertAttempt(e);
+        _dedup?.Register(e, now, attempt);
         _repo.TouchIpFailure(e.Ip, e.TimeUtc, whitelisted);
         _afterCommit.Add(() =>
         {
@@ -214,6 +225,12 @@ public sealed class GuardEngine
             _metrics.SawEvent(GuardMetrics.ChannelLabel(e.Channel), e.TimeUtc);
         });
 
+        EvaluateFailure(e, now, row, whitelisted);
+    }
+
+    /// <summary>Проверяет правила для адреса после записи (или дополнения) попытки.</summary>
+    private void EvaluateFailure(AuthEvent e, DateTime now, IpRow? row, bool whitelisted)
+    {
         // Белый список и уже забаненные: попытку записали, считать окна незачем.
         if (whitelisted || _repo.GetActiveBan(e.Ip, now) is not null) return;
         if (_policy.IsTrustedBySuccess(row?.LastSuccessUtc, e.TimeUtc)) return;

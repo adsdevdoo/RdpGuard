@@ -117,13 +117,27 @@ public sealed class Repository
 
     // ---------- attempts / successes ----------
 
-    public void InsertAttempt(AuthEvent e) =>
-        Db.Exec("""
-                INSERT INTO attempts(ts_utc, ip, user_name, logon_type, event_id, record_id, sub_status)
-                VALUES($ts, $ip, $user, $lt, $eid, $rid, $sub)
-                """,
+    /// <returns>id новой строки attempts.</returns>
+    public long InsertAttempt(AuthEvent e) =>
+        Db.ScalarLong("""
+                      INSERT INTO attempts(ts_utc, ip, user_name, logon_type, event_id, record_id, sub_status)
+                      VALUES($ts, $ip, $user, $lt, $eid, $rid, $sub);
+                      SELECT last_insert_rowid();
+                      """,
             ("$ts", DbTime.ToDb(e.TimeUtc)), ("$ip", e.Ip), ("$user", e.UserName), ("$lt", e.LogonType),
             ("$eid", e.EventId), ("$rid", e.RecordId > 0 ? e.RecordId : null), ("$sub", e.SubStatus is { } s ? (long)s : null));
+
+    /// <summary>
+    /// Дополняет попытку, записанную по событию 140, данными из парного 4625 (имя, тип входа, код причины).
+    /// Время остаётся прежним: это та же попытка.
+    /// </summary>
+    public void UpgradeAttempt(long attemptId, AuthEvent e) =>
+        Db.Exec("""
+                UPDATE attempts SET event_id = $eid, record_id = $rid, user_name = $user, logon_type = $lt, sub_status = $sub
+                WHERE id = $id
+                """,
+            ("$id", attemptId), ("$eid", e.EventId), ("$rid", e.RecordId > 0 ? e.RecordId : null),
+            ("$user", e.UserName), ("$lt", e.LogonType), ("$sub", e.SubStatus is { } s ? (long)s : null));
 
     public void InsertSuccess(AuthEvent e) =>
         Db.Exec("""

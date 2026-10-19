@@ -224,6 +224,46 @@ public sealed class PolicyRulesEngineTests : IDisposable
     }
 
     [Fact]
+    public async Task Rdp140ArrivesFirst_PairedSecurity4625StillCountsByReason()
+    {
+        // Регрессия: 140 (без имени и кода) приходил раньше 4625, а 4625 выбрасывался как дубль —
+        // правило «несуществующее имя» не видело попыток, бан шёл только на 5-й по быстрому окну.
+        const string ip = "203.0.113.55";
+        var items = new List<RecordWork>();
+        var t = Now.AddMinutes(-20);
+        foreach (var user in new[] { "ADMINISTRATOR", "ADMIN", "USER", "HP", "PC" })
+        {
+            t = t.AddSeconds(40);
+            items.Add(FakeEventSource.Failure(ip, t, null!, eventId: 140, channel: EventParser.RdpCoreTsChannel));
+            items.Add(FakeEventSource.Failure(ip, t.AddMilliseconds(300), user, subStatus: FailureCodes.NoSuchUser));
+        }
+
+        int? bannedAfter = await FeedUntilBanned(ip, items);
+
+        Assert.Equal(6, bannedAfter); // третья пара: 140 + 4625
+        var ban = _engine.Repository.GetActiveBan(ip, Now)!;
+        Assert.Contains("non-existent user names", ban.Reason);
+        Assert.Equal(3, _db.ScalarLong("SELECT COUNT(*) FROM attempts WHERE ip = $ip", ("$ip", ip)));
+        Assert.Equal(3, _db.ScalarLong(
+            "SELECT COUNT(*) FROM attempts WHERE ip = $ip AND event_id = 4625 AND user_name IS NOT NULL AND sub_status IS NOT NULL",
+            ("$ip", ip)));
+    }
+
+    [Fact]
+    public async Task Security4625ArrivesFirst_Paired140IsSkipped()
+    {
+        const string ip = "203.0.113.56";
+        var t = Now.AddMinutes(-5);
+        await Feed(new WorkItem[]
+        {
+            FakeEventSource.Failure(ip, t, "ADMIN", subStatus: FailureCodes.NoSuchUser),
+            FakeEventSource.Failure(ip, t.AddMilliseconds(200), null!, eventId: 140, channel: EventParser.RdpCoreTsChannel),
+        });
+        Assert.Equal(1, _db.ScalarLong("SELECT COUNT(*) FROM attempts WHERE ip = $ip AND event_id = 4625", ("$ip", ip)));
+        Assert.Equal(0, _db.ScalarLong("SELECT COUNT(*) FROM attempts WHERE ip = $ip AND event_id = 140", ("$ip", ip)));
+    }
+
+    [Fact]
     public async Task LegitUserTypos_ThenSuccess_AreNotBanned()
     {
         const string ip = "198.51.100.88";
