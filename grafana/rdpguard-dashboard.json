@@ -21,6 +21,24 @@
       "id": "prometheus",
       "name": "Prometheus",
       "version": "1.0.0"
+    },
+    {
+      "type": "panel",
+      "id": "bargauge",
+      "name": "Bar gauge",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "stat",
+      "name": "Stat",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "timeseries",
+      "name": "Time series",
+      "version": ""
     }
   ],
   "title": "RdpGuard",
@@ -32,7 +50,7 @@
   ],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "editable": true,
   "graphTooltip": 1,
   "time": {
@@ -113,7 +131,8 @@
           "expr": "max(rdpguard_dry_run{instance=~\"$instance\"})",
           "legendFormat": "",
           "refId": "A",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ],
       "options": {
@@ -187,7 +206,8 @@
           "expr": "sum(rdpguard_active_bans{instance=~\"$instance\"})",
           "legendFormat": "",
           "refId": "A",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ],
       "options": {
@@ -245,7 +265,8 @@
           "expr": "sum(rdpguard_failed_logons_last_1h{instance=~\"$instance\"})",
           "legendFormat": "",
           "refId": "A",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ],
       "options": {
@@ -311,7 +332,8 @@
           "expr": "sum(rdpguard_attacking_ips_last_24h{instance=~\"$instance\"})",
           "legendFormat": "",
           "refId": "A",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ],
       "options": {
@@ -349,7 +371,7 @@
       "id": 6,
       "type": "stat",
       "title": "External logons, 24h",
-      "description": "Successful logons from public addresses. Check the Application log (event 1003) if this is unexpected.",
+      "description": "Successful logons from public addresses. Check the Application log (event 1003) if unexpected.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -369,7 +391,8 @@
           "expr": "sum(rdpguard_external_logons_last_24h{instance=~\"$instance\"})",
           "legendFormat": "",
           "refId": "A",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ],
       "options": {
@@ -410,8 +433,8 @@
     {
       "id": 7,
       "type": "stat",
-      "title": "Errors, 1h",
-      "description": "",
+      "title": "Accounts being guessed",
+      "description": "Existing accounts that got wrong passwords from 3+ addresses within 24h (distributed guessing, event 1009).",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -428,10 +451,11 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum(increase(rdpguard_errors_total{instance=~\"$instance\"}[1h]))",
+          "expr": "count(rdpguard_account_wrong_password_ips_last_24h{instance=~\"$instance\"} >= 3) or vector(0)",
           "legendFormat": "",
           "refId": "A",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ],
       "options": {
@@ -486,7 +510,7 @@
       "id": 9,
       "type": "timeseries",
       "title": "Failed logons per minute",
-      "description": "4625 = Security failed logon, 140 = RdpCoreTS authentication failure (duplicates of 4625 already removed).",
+      "description": "4625 = Security failed logon, 140 = RdpCoreTS authentication failure (4625 duplicates removed).",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -617,6 +641,61 @@
     {
       "id": 12,
       "type": "timeseries",
+      "title": "New bans per hour, by rule",
+      "description": "wrong_password: 5 wrong passwords for an existing account/day; no_such_user: 3 unknown user names/day; periodic: 5 attempts at regular intervals (bots); fast: 5/10 min; slow: 15/day.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 15,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (rule) (increase(rdpguard_ban_triggers_total{instance=~\"$instance\"}[1h]))",
+          "legendFormat": "{{rule}}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 60,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
       "title": "Active bans by offense",
       "description": "Offense n bans last BaseBanDuration * 2^(n-1), capped at MaxBanDuration.",
       "datasource": {
@@ -624,7 +703,7 @@
         "uid": "${DS_PROMETHEUS}"
       },
       "gridPos": {
-        "x": 0,
+        "x": 12,
         "y": 15,
         "w": 12,
         "h": 8
@@ -670,17 +749,17 @@
       }
     },
     {
-      "id": 13,
+      "id": 14,
       "type": "timeseries",
-      "title": "New bans per hour",
+      "title": "New bans per hour, by offense",
       "description": "",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
       "gridPos": {
-        "x": 12,
-        "y": 15,
+        "x": 0,
+        "y": 23,
         "w": 12,
         "h": 8
       },
@@ -725,7 +804,7 @@
       }
     },
     {
-      "id": 14,
+      "id": 15,
       "type": "timeseries",
       "title": "Lifted bans per hour",
       "description": "",
@@ -734,7 +813,7 @@
         "uid": "${DS_PROMETHEUS}"
       },
       "gridPos": {
-        "x": 0,
+        "x": 12,
         "y": 23,
         "w": 12,
         "h": 8
@@ -780,18 +859,226 @@
       }
     },
     {
-      "id": 15,
+      "id": 16,
+      "type": "row",
+      "title": "Accounts",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 31,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 17,
+      "type": "bargauge",
+      "title": "Wrong passwords per account, 24h",
+      "description": "Wrong passwords for EXISTING accounts from all addresses. Someone knows these account names.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sort_desc(sum by (account) (rdpguard_account_wrong_passwords_last_24h{instance=~\"$instance\"}))",
+          "legendFormat": "{{account}}",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "left",
+        "minVizHeight": 16,
+        "maxVizHeight": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 5
+              },
+              {
+                "color": "red",
+                "value": 20
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 18,
+      "type": "bargauge",
+      "title": "Addresses guessing each account, 24h",
+      "description": "3+ addresses on one account means distributed guessing: per-IP bans do not stop it.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 32,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sort_desc(max by (account) (rdpguard_account_wrong_password_ips_last_24h{instance=~\"$instance\"}))",
+          "legendFormat": "{{account}}",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "left",
+        "minVizHeight": 16,
+        "maxVizHeight": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 2
+              },
+              {
+                "color": "red",
+                "value": 3
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 19,
       "type": "timeseries",
-      "title": "Successful external logons per hour",
+      "title": "Wrong passwords per account (rolling 24h)",
       "description": "",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
       "gridPos": {
-        "x": 12,
-        "y": 23,
-        "w": 12,
+        "x": 16,
+        "y": 32,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (account) (rdpguard_account_wrong_passwords_last_24h{instance=~\"$instance\"})",
+          "legendFormat": "{{account}}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 15,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "Successful external logons per hour",
+      "description": "whitelisted=false: a successful logon from a public address that is not in the whitelist.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 24,
         "h": 8
       },
       "targets": [
@@ -835,20 +1122,20 @@
       }
     },
     {
-      "id": 16,
+      "id": 21,
       "type": "row",
       "title": "Health",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 31,
+        "y": 48,
         "w": 24,
         "h": 1
       },
       "panels": []
     },
     {
-      "id": 17,
+      "id": 22,
       "type": "stat",
       "title": "Blocked addresses",
       "description": "Addresses in RdpGuard-Block-NN rules after the last reconciliation (absent in DRY RUN).",
@@ -858,7 +1145,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 32,
+        "y": 49,
         "w": 4,
         "h": 4
       },
@@ -871,7 +1158,8 @@
           "expr": "sum(rdpguard_firewall_addresses{instance=~\"$instance\"})",
           "legendFormat": "",
           "refId": "A",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ],
       "options": {
@@ -906,7 +1194,7 @@
       }
     },
     {
-      "id": 18,
+      "id": 23,
       "type": "stat",
       "title": "Firewall rules",
       "description": "",
@@ -916,7 +1204,7 @@
       },
       "gridPos": {
         "x": 4,
-        "y": 32,
+        "y": 49,
         "w": 4,
         "h": 4
       },
@@ -929,7 +1217,8 @@
           "expr": "sum(rdpguard_firewall_rules{instance=~\"$instance\"})",
           "legendFormat": "",
           "refId": "A",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ],
       "options": {
@@ -964,7 +1253,7 @@
       }
     },
     {
-      "id": 19,
+      "id": 24,
       "type": "stat",
       "title": "Since last firewall sync",
       "description": "The service reconciles every minute; a growing value means firewall errors.",
@@ -974,7 +1263,7 @@
       },
       "gridPos": {
         "x": 8,
-        "y": 32,
+        "y": 49,
         "w": 4,
         "h": 4
       },
@@ -987,7 +1276,8 @@
           "expr": "time() - max(rdpguard_firewall_last_sync_timestamp_seconds{instance=~\"$instance\"})",
           "legendFormat": "",
           "refId": "A",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ],
       "options": {
@@ -1030,7 +1320,86 @@
       }
     },
     {
-      "id": 20,
+      "id": 25,
+      "type": "stat",
+      "title": "Logon auditing",
+      "description": "Windows must log Success and Failure logons (Audit Logon), otherwise RdpGuard sees no attacks. RdpGuard re-enables it hourly; OFF that persists means a Group Policy disables it.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 49,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "min(rdpguard_logon_audit_enabled{instance=~\"$instance\"})",
+          "legendFormat": "",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "OFF",
+                  "color": "red",
+                  "index": 0
+                },
+                "1": {
+                  "text": "ON",
+                  "color": "green",
+                  "index": 1
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 26,
       "type": "stat",
       "title": "Event queue",
       "description": "",
@@ -1039,8 +1408,8 @@
         "uid": "${DS_PROMETHEUS}"
       },
       "gridPos": {
-        "x": 12,
-        "y": 32,
+        "x": 16,
+        "y": 49,
         "w": 4,
         "h": 4
       },
@@ -1053,7 +1422,8 @@
           "expr": "sum(rdpguard_queue_length{instance=~\"$instance\"})",
           "legendFormat": "",
           "refId": "A",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ],
       "options": {
@@ -1096,7 +1466,7 @@
       }
     },
     {
-      "id": 21,
+      "id": 27,
       "type": "stat",
       "title": "Database",
       "description": "",
@@ -1105,8 +1475,8 @@
         "uid": "${DS_PROMETHEUS}"
       },
       "gridPos": {
-        "x": 16,
-        "y": 32,
+        "x": 20,
+        "y": 49,
         "w": 4,
         "h": 4
       },
@@ -1119,7 +1489,8 @@
           "expr": "min(rdpguard_database_up{instance=~\"$instance\"})",
           "legendFormat": "",
           "refId": "A",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ],
       "options": {
@@ -1174,65 +1545,7 @@
       }
     },
     {
-      "id": 22,
-      "type": "stat",
-      "title": "Uptime",
-      "description": "",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "gridPos": {
-        "x": 20,
-        "y": 32,
-        "w": 4,
-        "h": 4
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "expr": "time() - max(rdpguard_start_time_seconds{instance=~\"$instance\"})",
-          "legendFormat": "",
-          "refId": "A",
-          "instant": true
-        }
-      ],
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "center",
-        "textMode": "value"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "decimals": 0,
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      }
-    },
-    {
-      "id": 23,
+      "id": 28,
       "type": "timeseries",
       "title": "Errors per hour",
       "description": "",
@@ -1242,8 +1555,8 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 36,
-        "w": 24,
+        "y": 53,
+        "w": 18,
         "h": 8
       },
       "targets": [
@@ -1290,6 +1603,65 @@
               "group": "A"
             },
             "showPoints": "never"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 29,
+      "type": "stat",
+      "title": "Uptime",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 53,
+        "w": 6,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "time() - max(rdpguard_start_time_seconds{instance=~\"$instance\"})",
+          "legendFormat": "",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 0,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
           }
         },
         "overrides": []
