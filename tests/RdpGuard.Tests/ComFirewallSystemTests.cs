@@ -143,3 +143,83 @@ public class LogonAuditPolicySystemTests
         Assert.False(string.IsNullOrEmpty(state.ToString()));
     }
 }
+
+/// <summary>
+/// Источник событий на настоящем журнале: пишем свои события в Application и проверяем,
+/// что догрузка и живая подписка вместе отдают каждую запись ровно один раз и по порядку.
+/// Регрессия: подписка с условием EventRecordID не получала живых событий вовсе.
+/// </summary>
+[Trait("Category", "System")]
+public class EventLogAuthSourceSystemTests
+{
+    private const string Source = "RdpGuardSystemTest";
+
+    private static Events.EventLogAuthSource.ChannelSpec Spec() => new(
+        "Application",
+        (after, lookback) =>
+        {
+            string range = after is long r ? $" and EventRecordID &gt; {r}" : "";
+            return "<QueryList><Query Id=\"0\" Path=\"Application\"><Select Path=\"Application\">" +
+                   $"*[System[Provider[@Name='{Source}']{range}]]</Select></Query></QueryList>";
+        },
+        (_, _, _, _, _) => null);
+
+    private static long Write(string message)
+    {
+        System.Diagnostics.EventLog.WriteEntry(Source, message, System.Diagnostics.EventLogEntryType.Information, 4242);
+        var q = new System.Diagnostics.Eventing.Reader.EventLogQuery("Application",
+            System.Diagnostics.Eventing.Reader.PathType.LogName, $"*[System[Provider[@Name='{Source}']]]") { ReverseDirection = true };
+        using var reader = new System.Diagnostics.Eventing.Reader.EventLogReader(q);
+        using var newest = reader.ReadEvent();
+        return newest!.RecordId!.Value;
+    }
+
+    private static async Task<List<long>> Collect(System.Threading.Channels.ChannelReader<Events.WorkItem> reader, int expected)
+    {
+        var ids = new List<long>();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        while (ids.Count < expected)
+        {
+            var item = await reader.ReadAsync(cts.Token);
+            if (item is Events.RecordWork w) ids.Add(w.RecordId);
+        }
+        // небольшая пауза: убедиться, что дублей не приходит
+        await Task.Delay(1500);
+        while (reader.TryRead(out var extra)) if (extra is Events.RecordWork w) ids.Add(w.RecordId);
+        return ids;
+    }
+
+    [SystemFact]
+    public async Task CatchUpThenLive_DeliversEveryRecordOnceInOrder()
+    {
+        bool created = false;
+        if (!System.Diagnostics.EventLog.SourceExists(Source))
+        {
+            System.Diagnostics.EventLog.CreateEventSource(Source, "Application");
+            created = true;
+        }
+        try
+        {
+            long before = Write("before start (bookmark)");
+            long missed1 = Write("missed while service was down #1");
+            long missed2 = Write("missed while service was down #2");
+
+            var options = new Configuration.GuardOptions();
+            options.Detection.InitialLookbackMinutes = 0;
+            var channel = System.Threading.Channels.Channel.CreateUnbounded<Events.WorkItem>();
+            using var source = new Events.EventLogAuthSource(options, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, new[] { Spec() });
+            source.Start(channel.Writer, ch => ch == "Application" ? before : null);
+
+            long live1 = Write("live #1");
+            await Task.Delay(2000);
+            long live2 = Write("live #2 (after catch-up)");
+
+            var ids = await Collect(channel.Reader, 4);
+            Assert.Equal(new[] { missed1, missed2, live1, live2 }, ids);
+        }
+        finally
+        {
+            if (created) System.Diagnostics.EventLog.DeleteEventSource(Source);
+        }
+    }
+}

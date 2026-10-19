@@ -42,6 +42,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="RdpGuard.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Content Remove="appsettings*.json" />
     <None Remove="appsettings*.json" />
     <Content Include="appsettings.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
