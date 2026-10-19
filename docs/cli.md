@@ -110,7 +110,7 @@ RdpGuard allow 2001:db8:1234::/48 --note "VPN"
 ```
 Token 'grafana' created. Copy it now, it is not stored and will not be shown again:
 
-  rg_Q2x3m1kq0cX0wD9m2b7m0gYxk6T1vZpJ3o4yq8Hn1Ws
+  rg_EXAMPLE-not-a-real-token-xxxxxxxxxxxxxxxxx
 
 Use it as the HTTP header:  Authorization: Bearer <token>
 ```
@@ -122,7 +122,7 @@ Use it as the HTTP header:  Authorization: Bearer <token>
 ```
 Name        Token       Created           State
 ----------  ----------  ----------------  -----------------------
-prometheus  rg_Q2x3m1…  2026-10-19 17:41  active
+prometheus  rg_EXAMPL…  2026-10-19 17:41  active
 old         rg_a81Kd0…  2026-09-01 10:00  revoked 2026-10-19 17:45
 ```
 

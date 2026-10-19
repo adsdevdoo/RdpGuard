@@ -145,7 +145,7 @@ curl -H "Authorization: Bearer rg_..." http://win-server-01:9645/metrics
 ```json
 [
   {
-    "ip": "36.66.184.215",
+    "ip": "203.0.113.10",
     "attempts": 128,
     "users": 1,
     "firstUtc": "2026-10-19T14:41:52.384Z",
