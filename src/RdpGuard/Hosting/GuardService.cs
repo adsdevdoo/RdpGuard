@@ -64,11 +64,12 @@ public sealed class GuardService : BackgroundService
 
         var channel = Channel.CreateUnbounded<WorkItem>(new UnboundedChannelOptions
         {
-            SingleReader = true,
+            // SingleReader = false: только такой неограниченный канал поддерживает Count (метрика очереди).
+            SingleReader = false,
             SingleWriter = false,
         });
 
-        _metrics.QueueLength = () => channel.Reader.Count;
+        if (channel.Reader.CanCount) _metrics.QueueLength = () => channel.Reader.Count;
 
         using var tickerCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
         var ticker = RunTickerAsync(channel.Writer, tickerCts.Token);

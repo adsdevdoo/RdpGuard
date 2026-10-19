@@ -25,7 +25,18 @@ public static class PrometheusWriter
         }
 
         if (metrics.QueueLength is { } queue)
-            Gauge(sb, "rdpguard_queue_length", "Events waiting to be written to the database.", queue());
+        {
+            int? length = null;
+            try
+            {
+                length = queue();
+            }
+            catch (Exception)
+            {
+                // метрика необязательна; остальной ответ важнее
+            }
+            if (length is { } n) Gauge(sb, "rdpguard_queue_length", "Events waiting to be written to the database.", n);
+        }
 
         if (metrics.LastEventUtc.Count > 0)
         {

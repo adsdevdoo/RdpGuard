@@ -280,3 +280,38 @@ public class ApiTokenAndSchemaTests : IDisposable
         Assert.Equal(0, upgraded.ScalarLong("SELECT COUNT(*) FROM api_tokens"));
     }
 }
+
+public class PrometheusWriterTests
+{
+    [Fact]
+    public void QueueLength_FromServiceChannel_IsReported()
+    {
+        // Канал создаётся так же, как в GuardService.
+        var channel = System.Threading.Channels.Channel.CreateUnbounded<Events.WorkItem>(
+            new System.Threading.Channels.UnboundedChannelOptions { SingleReader = false, SingleWriter = false });
+        channel.Writer.TryWrite(new Events.TickWork(Events.TickKind.Quick));
+        Assert.True(channel.Reader.CanCount);
+
+        var metrics = new GuardMetrics { QueueLength = () => channel.Reader.Count };
+        var text = PrometheusWriter.Render(metrics, null, false, "1.0", DateTime.UtcNow);
+        Assert.Contains("\nrdpguard_queue_length 1\n", text);
+    }
+
+    [Fact]
+    public void FailingOptionalMetric_DoesNotBreakResponse()
+    {
+        var metrics = new GuardMetrics { QueueLength = () => throw new NotSupportedException() };
+        var text = PrometheusWriter.Render(metrics, null, false, "1.0", DateTime.UtcNow);
+        Assert.DoesNotContain("rdpguard_queue_length", text);
+        Assert.Contains("rdpguard_database_up 0", text);
+    }
+
+    [Fact]
+    public void LabelValues_AreEscaped()
+    {
+        var metrics = new GuardMetrics();
+        metrics.EventsRead.Inc(@"we""ird\chan");
+        var text = PrometheusWriter.Render(metrics, null, false, "1.0", DateTime.UtcNow);
+        Assert.Contains(@"rdpguard_events_read_total{channel=""we\""ird\\chan""} 1", text);
+    }
+}
