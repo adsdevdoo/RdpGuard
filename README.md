@@ -102,3 +102,7 @@ RdpGuard uninstall --purge   # то же + БД, логи и источник ж
 - Права администратора для установки и CLI; служба работает от LocalSystem.
 - Windows Firewall. Аудит входов (Success и Failure) RdpGuard включает сам и следит, чтобы он не выключался.
 - Для сборки: .NET SDK 8 или новее.
+
+## Лицензия
+
+[MIT](LICENSE)

@@ -10,6 +10,8 @@
     <RootNamespace>RdpGuard</RootNamespace>
     <Version>1.0.0</Version>
     <Product>RdpGuard</Product>
+    <Copyright>Copyright (c) 2026 adsdevdoo</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <Description>Windows service that bans brute-force IP addresses in Windows Firewall.</Description>
     <InvariantGlobalization>false</InvariantGlobalization>
     <ServerGarbageCollection>false</ServerGarbageCollection>
