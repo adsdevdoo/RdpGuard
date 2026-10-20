@@ -35,7 +35,8 @@ Copy-Item publish\* "C:\Program Files\RdpGuard\"
 ```
 
 Когда убедитесь, что в банах нет ваших адресов (если есть: `RdpGuard allow <ip|cidr>`),
-поставьте `"DryRun": false` в `C:\Program Files\RdpGuard\appsettings.json` и перезапустите службу:
+поставьте `"DryRun": false` в `%ProgramData%\RdpGuard\appsettings.local.json` (настройки этого сервера; `install` создаёт шаблон)
+и перезапустите службу:
 
 ```powershell
 Restart-Service RdpGuard
@@ -105,7 +106,7 @@ RdpGuard uninstall --purge   # то же + БД, логи и источник ж
 |---|---|
 | [Установка](docs/installation.md) | Требования, установка, переход из DryRun, обновление, удаление |
 | [Как это работает](docs/how-it-works.md) | События, политика банов, нарастание срока, брандмауэр, схема БД |
-| [Конфигурация](docs/configuration.md) | Все параметры `appsettings.json` |
+| [Конфигурация](docs/configuration.md) | Все параметры; заводской `appsettings.json` и местный `appsettings.local.json` |
 | [Команды CLI](docs/cli.md) | `status`, `bans`, `top`, `ban`, `unban`, `allow`, `api-token`, `export`… |
 | [HTTP API](docs/api.md) | Авторизация, эндпоинты, метрики Prometheus, примеры ответов |
 | [Grafana и Prometheus](docs/grafana.md) | Сбор метрик, дашборд, плагин Infinity, алерты |

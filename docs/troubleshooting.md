@@ -63,7 +63,10 @@ Get-NetFirewallRule -DisplayName 'RdpGuard-*' | Remove-NetFirewallRule
 ## Служба не запускается
 
 - Ошибка конфигурации: событие 1900 в журнале Application с перечнем неверных параметров;
-  то же покажет любая команда CLI, например `RdpGuard status`.
+  то же покажет любая команда CLI, например `RdpGuard status`. Проверьте оба файла: заводской
+  `appsettings.json` и `%ProgramData%\RdpGuard\appsettings.local.json`.
+- После обновления пропали свои настройки (API снова только на localhost, DryRun вернулся) — значит,
+  они были записаны в заводской `appsettings.json`, который заменился. Перенесите их в local-файл.
 - `Database schema vN is newer than this build supports` — запущена старая версия exe на БД новой версии.
 - Запустите в консоли, чтобы увидеть лог: `Stop-Service RdpGuard; RdpGuard run`.
 

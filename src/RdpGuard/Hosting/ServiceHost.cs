@@ -19,12 +19,7 @@ public static class ServiceHost
 {
     public const string ServiceName = "RdpGuard";
 
-    public static IConfigurationRoot LoadConfiguration() =>
-        new ConfigurationBuilder()
-            .SetBasePath(AppContext.BaseDirectory)
-            .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
-            .AddEnvironmentVariables("RDPGUARD_")
-            .Build();
+    public static IConfigurationRoot LoadConfiguration() => ConfigSources.Build();
 
     public static int Run(string[] args, bool asService)
     {
@@ -33,7 +28,8 @@ public static class ServiceHost
             Args = args,
             ContentRootPath = AppContext.BaseDirectory,
         });
-        builder.Configuration.AddEnvironmentVariables("RDPGUARD_");
+        // appsettings.json уже подключён хостом; поверх — local-файл сервера и RDPGUARD_*.
+        builder.Configuration.AddLocalOverrides(ConfigSources.LocalPath);
 
         var options = GuardOptions.Load(builder.Configuration);
         var errors = options.Validate();

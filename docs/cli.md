@@ -96,7 +96,8 @@ RdpGuard allow 2001:db8:1234::/48 --note "VPN"
 
 ### `disallow <ip|cidr>`
 
-Удаляет запись, добавленную `allow`. Записи из `appsettings.json` удаляются только правкой конфига.
+Удаляет запись, добавленную `allow`. Записи `Whitelist:Cidrs` из конфига удаляются только правкой
+`appsettings.local.json`.
 
 ### `whitelist`
 

@@ -46,7 +46,7 @@ dotnet publish src/RdpGuard -c Release -r win-x64 -o publish
 | Файл | Назначение |
 |---|---|
 | `RdpGuard.exe` | Служба и CLI, ~35 МБ, всё внутри (включая SQLite) |
-| `appsettings.json` | Конфигурация; лежит рядом с exe, чтобы её можно было править |
+| `appsettings.json` | Заводская конфигурация; заменяется при обновлении. Свои настройки — в `%ProgramData%\RdpGuard\appsettings.local.json` |
 
 ## Установка службы
 
@@ -104,7 +104,7 @@ RdpGuard allow 198.51.100.0/24 --note "office"
 
 Включение блокировки:
 
-1. В `C:\Program Files\RdpGuard\appsettings.json` поставьте `"DryRun": false`.
+1. В `%ProgramData%\RdpGuard\appsettings.local.json` (его создал `install`) поставьте `"DryRun": false` внутри секции `"RdpGuard"`.
 2. Перезапустите службу:
 
    ```powershell
@@ -122,7 +122,15 @@ Copy-Item publish\RdpGuard.exe "C:\Program Files\RdpGuard\" -Force
 Start-Service RdpGuard
 ```
 
-`appsettings.json` при обновлении не перезаписывайте — сравните с новым и перенесите добавленные секции.
+Вместе с exe можно спокойно заменить и `appsettings.json`: настройки сервера лежат в `%ProgramData%\RdpGuard\appsettings.local.json`
+и обновлением не затрагиваются. После обновления проверьте `RdpGuard status`: в строке `Config:` должны быть оба файла.
+
+```powershell
+Copy-Item publish\appsettings.json "C:\Program Files\RdpGuard\" -Force
+```
+
+Если вы обновляетесь с версии без local-файла и правили `appsettings.json` в Program Files, сначала перенесите
+свои значения (`DryRun`, `Api`, `Whitelist`, изменённые пороги) в `%ProgramData%\RdpGuard\appsettings.local.json`, затем заменяйте файл.
 Схема БД обновляется автоматически при первом запуске новой версии (см. [разработка](development.md#миграции-схемы)).
 Откатиться на старую версию после миграции нельзя: старый exe откажется открывать более новую схему.
 

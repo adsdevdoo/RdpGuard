@@ -56,7 +56,8 @@ public static class CliApp
           export --csv [--out DIR]    Write ips.csv and bans.csv (default: current directory).
           sync                        Reconcile firewall rules with the database now.
 
-        Configuration: appsettings.json next to RdpGuard.exe. All commands require an elevated prompt.
+        Configuration: appsettings.json next to RdpGuard.exe (defaults, replaced on update), overridden by
+        %ProgramData%\RdpGuard\appsettings.local.json (this server's settings). All commands require an elevated prompt.
         """;
 
     public static int Run(string[] args)
@@ -207,6 +208,13 @@ public static class CliApp
             ? "Access:     data folder restricted to SYSTEM and Administrators"
             : $"Access:     folder name does not contain 'RdpGuard'; permissions of {options.ResolvedDataDirectory} left unchanged");
 
+        if (ConfigSources.LocalPath is { } localConfig && !File.Exists(localConfig))
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(localConfig)!);
+            File.WriteAllText(localConfig, ConfigSources.LocalTemplate + Environment.NewLine);
+            Console.WriteLine($"Config:     created {localConfig} for this server's settings");
+        }
+
         ServiceInstaller.EnsureEventSource();
         Console.WriteLine("Event log:  source 'RdpGuard' in the Application log");
 
@@ -299,6 +307,7 @@ public static class CliApp
         Console.WriteLine($"Service:          {(status is null ? "not installed" : status.ToString())}");
         Console.WriteLine($"Mode:             {(ctx.Options.DryRun ? "DRY RUN (firewall is not modified)" : "enforcing")}");
         Console.WriteLine($"Database:         {db.Path} (schema v{db.CurrentSchemaVersion})");
+        Console.WriteLine($"Config:           {string.Join(" + ", ConfigSources.LoadedFiles())}");
         Console.WriteLine($"Ban rules:        {BanPolicy.DescribeRules(ctx.Options.Policy)}");
         Console.WriteLine($"Ban duration:     {BanPolicy.FormatSpan(ctx.Options.Policy.BaseBanDuration)} x2 per offense, max {BanPolicy.FormatSpan(ctx.Options.Policy.MaxBanDuration)}" +
                           (ctx.Options.Policy.PermanentAfterOffenses > 0 ? $", permanent after {ctx.Options.Policy.PermanentAfterOffenses} offenses" : ""));

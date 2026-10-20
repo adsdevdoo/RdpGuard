@@ -13,12 +13,26 @@ dotnet publish src/RdpGuard -c Release -r win-x64 -o publish
 Запуск из исходников в консоли с отдельной папкой данных, не трогая установленную службу:
 
 ```powershell
+$env:RDPGUARD_LOCAL_CONFIG = "none"     # не брать настройки установленной службы
 $env:RDPGUARD_RdpGuard__DataDirectory = "$env:TEMP\rdpguard-dev"
 $env:RDPGUARD_RdpGuard__Api__Urls__0 = "http://127.0.0.1:9646/"
 dotnet run --project src/RdpGuard -- run
 ```
 
 В DryRun (по умолчанию) это безопасно: журналы только читаются, брандмауэр не меняется.
+
+Тесты не должны видеть local-файл установленной службы: запускайте их с `RDPGUARD_LOCAL_CONFIG=none`
+(конфигурационные тесты передают пути явно и от него не зависят).
+
+### Git push с этой машины
+
+OpenSSH-ключ зашифрован, поэтому в репозитории задан push через PuTTY plink с ключом `adsdev.ppk`
+(как в `creepypaste-infra`), без запроса парольной фразы:
+
+```bash
+git config core.sshCommand "'C:/Program Files/PuTTY/plink.exe' -batch -i 'C:/Users/Администратор/.ssh/adsdev.ppk'"
+git config ssh.variant plink
+```
 
 ### Системные тесты
 
@@ -52,7 +66,7 @@ src/RdpGuard/
   Program.cs          служба (под SCM), "run" (консоль) или CLI
   Api/                StatsApiServer (HttpListener), PrometheusWriter, ApiTokens
   Cli/                команды, sc.exe-установщик, ACL папки данных
-  Configuration/      GuardOptions — модель appsettings.json и её проверка
+  Configuration/      GuardOptions — модель настроек и её проверка; ConfigSources — appsettings.json + local + env
   Data/               GuardDb (SQLite, WAL, миграции), Repository, StatsQueries
   Engine/             GuardEngine (очередь -> БД -> брандмауэр), AdminOperations, GuardMetrics, LogEvents
   Events/             EventParser, EventLogAuthSource (EventLogWatcher), склейка 4625/140

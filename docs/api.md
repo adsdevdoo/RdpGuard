@@ -38,7 +38,7 @@ RdpGuard api-token revoke prometheus
 
 ### Доступ с другого сервера
 
-1. Слушать все интерфейсы и пустить только сервер мониторинга:
+1. Слушать все интерфейсы и пустить только сервер мониторинга — в `%ProgramData%\RdpGuard\appsettings.local.json`:
 
    ```json
    "Api": {
