@@ -642,7 +642,7 @@
       "id": 12,
       "type": "timeseries",
       "title": "New bans per hour, by rule",
-      "description": "wrong_password: 5 wrong passwords for an existing account/day; no_such_user: 3 unknown user names/day; periodic: 5 attempts at regular intervals (bots); fast: 5/10 min; slow: 15/day.",
+      "description": "wrong_password: 5 wrong passwords for an existing account/day; no_such_user: 3 unknown user names/day; bad_credentials: 3 unknown users or wrong passwords together/day; periodic: 5 attempts at regular intervals (bots); fast: 5/10 min; slow: 15/day.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"

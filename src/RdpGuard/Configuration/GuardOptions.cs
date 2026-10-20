@@ -42,12 +42,14 @@ public sealed class GuardOptions
         if (p.NoSuchUserWindow <= TimeSpan.Zero) errors.Add("Policy:NoSuchUserWindow must be positive");
         if (p.WrongPasswordMaxFailures < 0) errors.Add("Policy:WrongPasswordMaxFailures must be >= 0");
         if (p.WrongPasswordWindow <= TimeSpan.Zero) errors.Add("Policy:WrongPasswordWindow must be positive");
+        if (p.BadCredentialsMaxFailures < 0) errors.Add("Policy:BadCredentialsMaxFailures must be >= 0");
+        if (p.BadCredentialsWindow <= TimeSpan.Zero) errors.Add("Policy:BadCredentialsWindow must be positive");
         if (p.PeriodicMinAttempts is < 0 or 1 or 2) errors.Add("Policy:PeriodicMinAttempts must be 0 (off) or >= 3");
         if (p.PeriodicMaxDeviation is < 0 or > 1) errors.Add("Policy:PeriodicMaxDeviation must be 0..1");
         if (p.PeriodicWindow <= TimeSpan.Zero) errors.Add("Policy:PeriodicWindow must be positive");
         if (p.AccountAlertWrongPasswords < 0 || p.AccountAlertMinIps < 0) errors.Add("Policy:AccountAlert* must be >= 0");
         if (p.MaxFailures == 0 && p.SlowMaxFailures == 0 && p.NoSuchUserMaxFailures == 0
-            && p.WrongPasswordMaxFailures == 0 && p.PeriodicMinAttempts == 0)
+            && p.WrongPasswordMaxFailures == 0 && p.BadCredentialsMaxFailures == 0 && p.PeriodicMinAttempts == 0)
             errors.Add("Policy: all ban rules are disabled");
         if (p.BaseBanDuration <= TimeSpan.Zero) errors.Add("Policy:BaseBanDuration must be positive");
         if (p.MaxBanDuration < p.BaseBanDuration) errors.Add("Policy:MaxBanDuration must be >= BaseBanDuration");
@@ -130,6 +132,14 @@ public sealed class PolicyOptions
     /// <summary>Подбор пароля к существующей учётке: столько неверных паролей (SubStatus 0xC000006A).</summary>
     public int WrongPasswordMaxFailures { get; set; } = 5;
     public TimeSpan WrongPasswordWindow { get; set; } = TimeSpan.FromDays(1);
+
+    /// <summary>
+    /// Неверные учётные данные вместе: несуществующее имя ИЛИ неверный пароль. Ловит медленный
+    /// целенаправленный подбор, который переключается между именами и не набирает порог ни одного
+    /// из правил по отдельности.
+    /// </summary>
+    public int BadCredentialsMaxFailures { get; set; } = 3;
+    public TimeSpan BadCredentialsWindow { get; set; } = TimeSpan.FromDays(1);
 
     /// <summary>«По таймеру»: столько попыток подряд с почти равными интервалами; 0 — выключено.</summary>
     public int PeriodicMinAttempts { get; set; } = 5;

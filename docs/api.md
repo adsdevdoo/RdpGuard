@@ -212,7 +212,7 @@ curl -H "Authorization: Bearer rg_..." http://win-server-01:9645/metrics
 | `rdpguard_failed_logons_duplicate_total` | `event_id` | Отброшено как дубли 4625/140 |
 | `rdpguard_external_logons_total` | `whitelisted` (`true`, `false`) | Успешные входы с внешних адресов |
 | `rdpguard_bans_total` | `offense` (`1`…`4`, `5+`) | Автоматические баны (ручные из CLI не входят) |
-| `rdpguard_ban_triggers_total` | `rule` (`wrong_password`, `no_such_user`, `periodic`, `fast`, `slow`) | Автоматические баны по сработавшему правилу |
+| `rdpguard_ban_triggers_total` | `rule` (`wrong_password`, `no_such_user`, `bad_credentials`, `periodic`, `fast`, `slow`) | Автоматические баны по сработавшему правилу |
 | `rdpguard_unbans_total` | `reason` (`expired`, `successful_logon`, `whitelisted`) | Снятые службой баны |
 | `rdpguard_errors_total` | `stage` (`event`, `batch`, `maintenance`, `firewall`) | Ошибки обработки |
 | `rdpguard_firewall_syncs_total` | `result` (`ok`, `error`) | Сверки брандмауэра |

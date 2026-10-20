@@ -32,7 +32,7 @@ public sealed record BanRow(
 public sealed record WhitelistRow(string Cidr, DateTime AddedUtc, string? Note);
 
 /// <summary>Счётчики неудач одного IP по окнам политики.</summary>
-public sealed record FailureStats(int Fast, int Slow, int NoSuchUser, int WrongPassword);
+public sealed record FailureStats(int Fast, int Slow, int NoSuchUser, int WrongPassword, int BadCredentials = 0);
 
 /// <summary>Неверные пароли к одной учётке со всех адресов.</summary>
 public sealed record AccountAttack(string User, int WrongPasswords, int Ips);
@@ -157,22 +157,24 @@ public sealed class Repository
     /// начала окон уже обрезаны концом предыдущего бана.
     /// </summary>
     public FailureStats GetFailureStats(string ip, DateTime untilUtc, DateTime fastSince, DateTime slowSince,
-        DateTime noSuchUserSince, DateTime wrongPasswordSince)
+        DateTime noSuchUserSince, DateTime wrongPasswordSince, DateTime? badCredentialsSince = null)
     {
-        var from = new[] { fastSince, slowSince, noSuchUserSince, wrongPasswordSince }.Min();
+        var badSince = badCredentialsSince ?? noSuchUserSince;
+        var from = new[] { fastSince, slowSince, noSuchUserSince, wrongPasswordSince, badSince }.Min();
         return Db.Query("""
                         SELECT
                           COALESCE(SUM(CASE WHEN ts_utc > $fast THEN 1 ELSE 0 END), 0),
                           COALESCE(SUM(CASE WHEN ts_utc > $slow THEN 1 ELSE 0 END), 0),
                           COALESCE(SUM(CASE WHEN ts_utc > $nus AND sub_status = $nouser THEN 1 ELSE 0 END), 0),
-                          COALESCE(SUM(CASE WHEN ts_utc > $wps AND sub_status = $wrong THEN 1 ELSE 0 END), 0)
+                          COALESCE(SUM(CASE WHEN ts_utc > $wps AND sub_status = $wrong THEN 1 ELSE 0 END), 0),
+                          COALESCE(SUM(CASE WHEN ts_utc > $bcs AND sub_status IN ($nouser, $wrong) THEN 1 ELSE 0 END), 0)
                         FROM attempts
                         WHERE ip = $ip AND ts_utc > $from AND ts_utc <= $until
                         """,
-            r => new FailureStats(r.GetInt32(0), r.GetInt32(1), r.GetInt32(2), r.GetInt32(3)),
+            r => new FailureStats(r.GetInt32(0), r.GetInt32(1), r.GetInt32(2), r.GetInt32(3), r.GetInt32(4)),
             ("$ip", ip), ("$until", DbTime.ToDb(untilUtc)), ("$from", DbTime.ToDb(from)),
             ("$fast", DbTime.ToDb(fastSince)), ("$slow", DbTime.ToDb(slowSince)),
-            ("$nus", DbTime.ToDb(noSuchUserSince)), ("$wps", DbTime.ToDb(wrongPasswordSince)),
+            ("$nus", DbTime.ToDb(noSuchUserSince)), ("$wps", DbTime.ToDb(wrongPasswordSince)), ("$bcs", DbTime.ToDb(badSince)),
             ("$nouser", (long)FailureCodes.NoSuchUser), ("$wrong", (long)FailureCodes.WrongPassword)).Single();
     }
 

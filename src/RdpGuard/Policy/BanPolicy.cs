@@ -11,6 +11,7 @@ namespace RdpGuard.Policy;
 /// <param name="NoSuchUserFailures">Попыток с несуществующим именем в окне NoSuchUserWindow.</param>
 /// <param name="WrongPasswordFailures">Неверных паролей к существующим учёткам в окне WrongPasswordWindow.</param>
 /// <param name="RecentFailureTimes">Время последних неудач по возрастанию (для детектора «по таймеру»).</param>
+/// <param name="BadCredentialFailures">Несуществующее имя или неверный пароль вместе, в окне BadCredentialsWindow.</param>
 public sealed record FailureContext(
     DateTime NowUtc,
     int FailuresInWindow,
@@ -22,7 +23,8 @@ public sealed record FailureContext(
     int SlowFailures = 0,
     int NoSuchUserFailures = 0,
     int WrongPasswordFailures = 0,
-    IReadOnlyList<DateTime>? RecentFailureTimes = null);
+    IReadOnlyList<DateTime>? RecentFailureTimes = null,
+    int BadCredentialFailures = 0);
 
 /// <summary>Какое правило сработало — для причины бана и метрик.</summary>
 public static class BanRules
@@ -30,11 +32,12 @@ public static class BanRules
     public const string Fast = "fast";
     public const string Slow = "slow";
     public const string NoSuchUser = "no_such_user";
+    public const string BadCredentials = "bad_credentials";
     public const string WrongPassword = "wrong_password";
     public const string Periodic = "periodic";
     public const string Manual = "manual";
 
-    public static readonly string[] All = { Fast, Slow, NoSuchUser, WrongPassword, Periodic };
+    public static readonly string[] All = { Fast, Slow, NoSuchUser, WrongPassword, BadCredentials, Periodic };
 }
 
 /// <param name="Duration">null — бан навсегда.</param>
@@ -100,6 +103,9 @@ public sealed class BanPolicy
         else if (Reached(c.NoSuchUserFailures, _o.NoSuchUserMaxFailures))
             hit = (BanRules.NoSuchUser, c.NoSuchUserFailures,
                 $"{c.NoSuchUserFailures} logons with non-existent user names within {FormatSpan(_o.NoSuchUserWindow)}");
+        else if (Reached(c.BadCredentialFailures, _o.BadCredentialsMaxFailures))
+            hit = (BanRules.BadCredentials, c.BadCredentialFailures,
+                $"{c.BadCredentialFailures} logons with non-existent users or wrong passwords within {FormatSpan(_o.BadCredentialsWindow)}");
         else if (IsPeriodic(c.RecentFailureTimes, out var interval))
             hit = (BanRules.Periodic, _o.PeriodicMinAttempts,
                 $"{_o.PeriodicMinAttempts} failed logons at regular ~{FormatInterval(interval)} intervals (automated)");
@@ -149,6 +155,7 @@ public sealed class BanPolicy
         var rules = new List<string>();
         if (p.WrongPasswordMaxFailures > 0) rules.Add($"{p.WrongPasswordMaxFailures} wrong passwords/{FormatSpan(p.WrongPasswordWindow)}");
         if (p.NoSuchUserMaxFailures > 0) rules.Add($"{p.NoSuchUserMaxFailures} unknown users/{FormatSpan(p.NoSuchUserWindow)}");
+        if (p.BadCredentialsMaxFailures > 0) rules.Add($"{p.BadCredentialsMaxFailures} bad credentials/{FormatSpan(p.BadCredentialsWindow)}");
         if (p.PeriodicMinAttempts > 0) rules.Add($"{p.PeriodicMinAttempts} at regular intervals");
         if (p.MaxFailures > 0) rules.Add($"{p.MaxFailures}/{FormatSpan(p.FailureWindow)}");
         if (p.SlowMaxFailures > 0) rules.Add($"{p.SlowMaxFailures}/{FormatSpan(p.SlowFailureWindow)}");

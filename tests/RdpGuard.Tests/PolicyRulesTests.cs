@@ -16,8 +16,9 @@ public class PolicyRulesTests
     private static readonly BanPolicy Policy = new(new PolicyOptions());
 
     private static FailureContext Ctx(int fast = 1, int slow = 1, int noSuchUser = 0, int wrongPassword = 0,
-        IReadOnlyList<DateTime>? times = null, DateTime? lastSuccess = null) =>
-        new(Now, fast, 0, null, lastSuccess, false, false, slow, noSuchUser, wrongPassword, times);
+        IReadOnlyList<DateTime>? times = null, DateTime? lastSuccess = null, int badCredentials = -1) =>
+        new(Now, fast, 0, null, lastSuccess, false, false, slow, noSuchUser, wrongPassword, times,
+            badCredentials >= 0 ? badCredentials : noSuchUser + wrongPassword);
 
     private static List<DateTime> Every(TimeSpan step, int count, params int[] jitterSeconds) =>
         Enumerable.Range(0, count)
@@ -27,8 +28,9 @@ public class PolicyRulesTests
     [Fact]
     public void WrongPasswordForExistingAccount_BansAtFive()
     {
-        Assert.False(Policy.Evaluate(Ctx(wrongPassword: 4)).Ban);
-        var d = Policy.Evaluate(Ctx(wrongPassword: 5));
+        // Правило само по себе (общее «неверные учётные данные» отключено через badCredentials: 0).
+        Assert.False(Policy.Evaluate(Ctx(wrongPassword: 4, badCredentials: 0)).Ban);
+        var d = Policy.Evaluate(Ctx(wrongPassword: 5, badCredentials: 0));
         Assert.True(d.Ban);
         Assert.Equal(BanRules.WrongPassword, d.Rule);
         Assert.Equal(5, d.Count);
@@ -42,6 +44,17 @@ public class PolicyRulesTests
         var d = Policy.Evaluate(Ctx(noSuchUser: 3));
         Assert.True(d.Ban);
         Assert.Equal(BanRules.NoSuchUser, d.Rule);
+    }
+
+    [Fact]
+    public void MixedUnknownUsersAndWrongPasswords_BanAtThree()
+    {
+        // 5.159.98.163: два раза «Administrator» (нет такого), затем два раза «Администратор» с неверным паролем.
+        Assert.False(Policy.Evaluate(Ctx(noSuchUser: 1, wrongPassword: 1)).Ban);
+        var d = Policy.Evaluate(Ctx(noSuchUser: 2, wrongPassword: 1));
+        Assert.True(d.Ban);
+        Assert.Equal(BanRules.BadCredentials, d.Rule);
+        Assert.Contains("non-existent users or wrong passwords", d.Reason);
     }
 
     [Fact]
@@ -108,7 +121,8 @@ public class PolicyRulesTests
     {
         var off = new BanPolicy(new PolicyOptions
         {
-            WrongPasswordMaxFailures = 0, NoSuchUserMaxFailures = 0, PeriodicMinAttempts = 0, SlowMaxFailures = 0,
+            WrongPasswordMaxFailures = 0, NoSuchUserMaxFailures = 0, BadCredentialsMaxFailures = 0, PeriodicMinAttempts = 0,
+            SlowMaxFailures = 0,
         });
         var d = off.Evaluate(Ctx(fast: 1, slow: 100, noSuchUser: 100, wrongPassword: 100, times: Every(TimeSpan.FromMinutes(5), 10)));
         Assert.False(d.Ban);
@@ -183,7 +197,7 @@ public sealed class PolicyRulesEngineTests : IDisposable
     private static DateTime At(string hms) => DateTime.SpecifyKind(DateTime.Parse("2026-10-19 " + hms), DateTimeKind.Utc);
 
     [Fact]
-    public async Task SspBot_WrongPasswordEvery38Min_IsBannedOnFifthAttempt()
+    public async Task SspBot_WrongPasswordEvery38Min_IsBannedOnThirdAttempt()
     {
         const string ip = "203.0.113.39"; // вместо реального адреса
         var items = SspBot.Select(t => FakeEventSource.Failure(ip, At(t), "Администратор",
@@ -191,12 +205,12 @@ public sealed class PolicyRulesEngineTests : IDisposable
 
         var bannedAfter = await FeedUntilBanned(ip, items);
 
-        Assert.Equal(5, bannedAfter);
+        Assert.Equal(3, bannedAfter);
         var ban = _engine.Repository.GetActiveBan(ip, Now)!;
         Assert.Contains("wrong passwords", ban.Reason);
-        Assert.Equal(5, ban.FailuresInWindow);
+        Assert.Equal(3, ban.FailuresInWindow);
         Assert.Contains(ip, _firewall.BlockedAddresses());
-        Assert.Equal(1, _engine.Metrics.BanTriggers.Get(BanRules.WrongPassword));
+        Assert.Equal(1, _engine.Metrics.BanTriggers.Get(BanRules.BadCredentials));
     }
 
     [Fact]
@@ -208,6 +222,24 @@ public sealed class PolicyRulesEngineTests : IDisposable
 
         Assert.Equal(5, await FeedUntilBanned(ip, items));
         Assert.Contains("regular ~38m", _engine.Repository.GetActiveBan(ip, Now)!.Reason);
+    }
+
+    [Fact]
+    public async Task SlowTargetedGuessing_SwitchingUserNames_IsBannedOnThirdAttempt()
+    {
+        // 5.159.98.163, 20.10.2026: паузы 26–51 минута (не «таймер»), имена меняются —
+        // ни одно отдельное правило не набирало порог.
+        const string ip = "203.0.113.98";
+        var items = new[]
+        {
+            FakeEventSource.Failure(ip, At("07:55:34"), "Administrator", subStatus: FailureCodes.NoSuchUser),
+            FakeEventSource.Failure(ip, At("08:21:32"), "Administrator", subStatus: FailureCodes.NoSuchUser),
+            FakeEventSource.Failure(ip, At("09:12:56"), "Администратор", subStatus: FailureCodes.WrongPassword),
+            FakeEventSource.Failure(ip, At("09:40:27"), "Администратор", subStatus: FailureCodes.WrongPassword),
+        };
+
+        Assert.Equal(3, await FeedUntilBanned(ip, items));
+        Assert.Contains("non-existent users or wrong passwords", _engine.Repository.GetActiveBan(ip, Now)!.Reason);
     }
 
     [Fact]
@@ -283,10 +315,10 @@ public sealed class PolicyRulesEngineTests : IDisposable
     [Fact]
     public async Task DistributedGuessing_RaisesAccountAlertOnce()
     {
-        // 5 адресов по 4 неверных пароля к одной учётке: ни один адрес не дошёл до бана, но учётку атакуют.
+        // 10 адресов по 2 неверных пароля к одной учётке: ни один адрес не дошёл до бана, но учётку атакуют.
         var items = new List<WorkItem>();
-        for (int ip = 1; ip <= 5; ip++)
-        for (int i = 0; i < 4; i++)
+        for (int ip = 1; ip <= 10; ip++)
+        for (int i = 0; i < 2; i++)
             items.Add(FakeEventSource.Failure($"203.0.113.{100 + ip}", Now.AddMinutes(-300 + ip * 7 + i * 41 + ip), "Администратор",
                 subStatus: FailureCodes.WrongPassword));
         await Feed(items);
@@ -297,7 +329,7 @@ public sealed class PolicyRulesEngineTests : IDisposable
 
         var alert = Assert.Single(_loggers.Entries, e => e.EventId == LogEvents.AccountAttack.Id);
         Assert.Contains("Администратор", alert.Message);
-        Assert.Contains("20 wrong passwords from 5", alert.Message);
+        Assert.Contains("20 wrong passwords from 10", alert.Message);
     }
 }
 

@@ -34,6 +34,7 @@ CLI выводит её в консоль.
 |---|---|---|
 | `WrongPasswordMaxFailures` / `WrongPasswordWindow` | `5` / `1.00:00:00` | Неверных паролей к существующей учётке (SubStatus 0xC000006A) с адреса за окно |
 | `NoSuchUserMaxFailures` / `NoSuchUserWindow` | `3` / `1.00:00:00` | Попыток с несуществующим именем (0xC0000064) за окно |
+| `BadCredentialsMaxFailures` / `BadCredentialsWindow` | `3` / `1.00:00:00` | Несуществующее имя или неверный пароль — вместе — за окно |
 | `PeriodicMinAttempts` | `5` | Попыток подряд с равными интервалами для детектора «по таймеру»; 0 — выключен, иначе ≥ 3 |
 | `PeriodicMaxDeviation` | `0.1` | Допустимое отклонение интервала от среднего (доля) |
 | `PeriodicWindow` | `1.00:00:00` | В каком окне искать серию |
@@ -134,6 +135,7 @@ CLI выводит её в консоль.
   "SlowMaxFailures": 0,
   "NoSuchUserMaxFailures": 0,
   "WrongPasswordMaxFailures": 0,
+  "BadCredentialsMaxFailures": 0,
   "PeriodicMinAttempts": 0
 }
 ```

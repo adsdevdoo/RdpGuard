@@ -247,7 +247,7 @@ public sealed class GuardEngine
         }
 
         var stats = _repo.GetFailureStats(e.Ip, e.TimeUtc, Since(p.FailureWindow), Since(p.SlowFailureWindow),
-            Since(p.NoSuchUserWindow), Since(p.WrongPasswordWindow));
+            Since(p.NoSuchUserWindow), Since(p.WrongPasswordWindow), Since(p.BadCredentialsWindow));
         var recent = p.PeriodicMinAttempts >= 3
             ? _repo.GetRecentFailureTimes(e.Ip, Since(p.PeriodicWindow), e.TimeUtc, p.PeriodicMinAttempts)
             : null;
@@ -255,7 +255,7 @@ public sealed class GuardEngine
         DateTime? lastActivity = Max(row?.LastSeenUtc, lastBanEnd);
         var decision = _policy.Evaluate(new FailureContext(
             e.TimeUtc, stats.Fast, row?.Offenses ?? 0, lastActivity, row?.LastSuccessUtc, HasActiveBan: false, IsWhitelisted: false,
-            stats.Slow, stats.NoSuchUser, stats.WrongPassword, recent));
+            stats.Slow, stats.NoSuchUser, stats.WrongPassword, recent, stats.BadCredentials));
 
         if (!decision.Ban) return;
 

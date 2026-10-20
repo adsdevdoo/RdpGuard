@@ -106,6 +106,7 @@ panels = [
                [target(f"sum by (rule) (increase(rdpguard_ban_triggers_total{{{SEL}}}[1h]))", "{{rule}}")],
                0, 15, stack=True, bars=True,
                desc="wrong_password: 5 wrong passwords for an existing account/day; no_such_user: 3 unknown user names/day; "
+                    "bad_credentials: 3 unknown users or wrong passwords together/day; "
                     "periodic: 5 attempts at regular intervals (bots); fast: 5/10 min; slow: 15/day."),
     timeseries("Active bans by offense",
                [target(f"sum by (offense) (rdpguard_active_bans_by_offense{{{SEL}}})", "offense {{offense}}")],
